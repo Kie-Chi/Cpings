@@ -131,21 +131,29 @@ bool default_init(packet_queue_t** queue_ptr) {
 
 void default_build_work_cb(uv_work_t* req) {
     packet_work_t* work = (packet_work_t*)req;
-    if (!work->free_func || !work->init_func || !work->make_func) {
-        fprintf(stderr, "Missing necessary function pointers.\n");
+    sender_t* sender = work->sender_handle;
+    
+    // Get the strategy data which holds the function pointers
+    default_strategy_data_t* s_data = (default_strategy_data_t*)sender->strategy->data;
+
+    if (!s_data->free_func || !s_data->init_func || !s_data->make_func) {
+        fprintf(stderr, "Missing necessary function pointers in strategy data.\n");
         work->error_code = BROKEN_ERROR;
         return;
     }
 
-    if (!work->init_func(&work->queue)) {
-        fprintf(stderr, "Failed to initialize packet.\n");
+    if (!s_data->init_func(&work->queue)) {
+        fprintf(stderr, "Failed to initialize packet queue.\n");
         work->error_code = INIT_ERROR;
         return;
     }
-    if (!work->make_func(work->queue, work->packet_args)) {
+    
+    // Use the functions and args from the strategy data
+    if (!s_data->make_func(work->queue, s_data->packet_args)) {
         fprintf(stderr, "Failed to make packet.\n");
         work->error_code = MAKE_ERROR;
-        work->free_func(work->queue);
+        s_data->free_func(work->queue); // Clean up the failed attempt
+        work->queue = NULL; // Ensure queue is NULL on error
         return;
     }
     work->error_code = NOERROR;
@@ -153,10 +161,14 @@ void default_build_work_cb(uv_work_t* req) {
 
 void default_after_work_cb(uv_work_t* req, int status) {
     packet_work_t* work = (packet_work_t*)req;
+    sender_t* sender = work->sender_handle;
+    default_strategy_data_t* s_data = (default_strategy_data_t*)sender->strategy->data;
+
     if (status == UV_ECANCELED) {
         fprintf(stderr, "Work request was cancelled.\n");
         if (work->queue) {
-            work->free_func(work->queue);
+            // Get the free function from the strategy to clean up
+            s_data->free_func(work->queue);
         }
         free(work);
         return;
@@ -164,20 +176,19 @@ void default_after_work_cb(uv_work_t* req, int status) {
 
     if (work->error_code != NOERROR) {
         fprintf(stderr, "Packet work failed with error code: %d\n", work->error_code);
+        // Note: Cleanup should have already happened in the worker thread on MAKE_ERROR
+        free(work);
         return;
     }
 
     if (work->queue) {
-        // 发包
         sender_add_to_queue(work->sender_handle, work->queue);
-        if (work->queue) {
-            free(work->queue);
-        }
+        // The sender_add_to_queue now owns the packets. We just free the container.
+        free(work->queue); 
     } else {
-#ifdef _DEBUG
-        printf("send_after_work_cb: none packets need sending\n");
-#endif
-        // NULL
+        #ifdef _DEBUG
+        printf("default_after_work_cb: no packets were generated to send.\n");
+        #endif
     }
 
     free(work);

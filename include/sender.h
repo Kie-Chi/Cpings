@@ -64,11 +64,6 @@ struct packet_queue_s {
 
 struct packet_work_s {
     uv_work_t work_req;
-    
-    make_packet_init init_func;
-    make_packet_func make_func;
-    packet_free free_func;
-    void* packet_args;
 
     int error_code;
     packet_queue_t* queue;
@@ -83,7 +78,7 @@ struct sender_strategy_s {
     void (*free_data)(void* strategy_data);
     send_packet_func send_func;
     void *send_args;
-    void* data;
+    void* data; // strategy_data_t
 };
 
 struct sender_s {

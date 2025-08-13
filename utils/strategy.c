@@ -2,19 +2,19 @@
 
 static void default_start(sender_t* sender, void* strategy_data) {
     default_strategy_data_t* data = (default_strategy_data_t*)strategy_data;
+    
     packet_work_t* work = (packet_work_t*)malloc(sizeof(packet_work_t));
     if (!work) {
         fprintf(stderr, "Failed to allocate memory for oneshot work\n");
         return;
     }
 
+    // Just set the handle. The worker will use this to find the strategy.
     work->sender_handle = sender;
-    work->init_func = data->init_func;
-    work->make_func = data->make_func;
-    work->free_func = data->free_func;
-    work->packet_args = data->packet_args;
     work->queue = NULL;
     work->error_code = NOERROR;
+    
+    // Queue the work request.
     uv_queue_work(sender->loop, &work->work_req, data->build_cb, data->after_build_cb);
 }
 
@@ -52,12 +52,12 @@ sender_strategy_t* create_strategy_oneshot(
     }
 
     // 3. Populate the data
-    data->default_data_t.init_func = init_func ? init_func : default_init;
-    data->default_data_t.make_func = make_func;
-    data->default_data_t.free_func = free_func ? free_func : default_free;
-    data->default_data_t.packet_args = packet_args;
-    data->default_data_t.build_cb = default_build_work_cb;
-    data->default_data_t.after_build_cb = default_after_work_cb;
+    data->default_data.init_func = init_func ? init_func : default_init;
+    data->default_data.make_func = make_func;
+    data->default_data.free_func = free_func ? free_func : default_free;
+    data->default_data.packet_args = packet_args;
+    data->default_data.build_cb = default_build_work_cb;
+    data->default_data.after_build_cb = default_after_work_cb;
 
     strategy->data = data;
     strategy->start = default_start;

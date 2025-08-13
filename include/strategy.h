@@ -4,7 +4,7 @@
 #include "sender.h"
 
 typedef struct {
-    default_strategy_data_t default_data_t;
+    default_strategy_data_t default_data;
 
     // More Options
 } oneshot_data_t;    

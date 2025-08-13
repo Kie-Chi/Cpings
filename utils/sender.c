@@ -13,29 +13,6 @@ static void free_packet(packet_t* packet) {
     free(packet);
 }
 
-static void sender_add_to_queue(sender_t* sender, packet_queue_t* packet_queue) {
-    if (!packet_queue || !packet_queue->head) {
-        return;
-    }
-    packet_queue_t* queue = (packet_queue_t*)sender->send_queue;
-    
-    // Find the tail of the new batch
-    packet_t* batch_tail = packet_queue->tail;
-
-    if (queue->tail) {
-        queue->tail->next = packet_queue->head;
-    } else {
-        // Queue is empty, this batch is the new head
-        queue->head = packet_queue->head;
-    }
-    // The tail of the queue is now the tail of the new batch
-    queue->tail = batch_tail;
-
-    // Start polling for writability if not already doing so
-    if (sender->is_running && !(uv_is_active((uv_handle_t*)sender->poll_handle))) {
-        uv_poll_start(sender->poll_handle, UV_WRITABLE, sender_poll_cb);
-    }
-}
 
 ssize_t default_send(sender_t* sender, packet_t* packet, void* send_args) {
     (void)send_args;
@@ -194,6 +171,30 @@ void default_after_work_cb(uv_work_t* req, int status) {
     free(work);
 }
 
+void sender_add_to_queue(sender_t* sender, packet_queue_t* packet_queue) {
+    if (!packet_queue || !packet_queue->head) {
+        return;
+    }
+    packet_queue_t* queue = (packet_queue_t*)sender->send_queue;
+    
+    // Find the tail of the new batch
+    packet_t* batch_tail = packet_queue->tail;
+
+    if (queue->tail) {
+        queue->tail->next = packet_queue->head;
+    } else {
+        // Queue is empty, this batch is the new head
+        queue->head = packet_queue->head;
+    }
+    // The tail of the queue is now the tail of the new batch
+    queue->tail = batch_tail;
+
+    // Start polling for writability if not already doing so
+    if (sender->is_running && !(uv_is_active((uv_handle_t*)sender->poll_handle))) {
+        uv_poll_start(sender->poll_handle, UV_WRITABLE, sender_poll_cb);
+    }
+}
+
 void sender_poll_cb(uv_poll_t* handle, int status, int events) {
     sender_t* sender = (sender_t*)handle->data;
     packet_queue_t* queue = (packet_queue_t*)sender->send_queue;
@@ -341,4 +342,60 @@ int sender_set_strategy(sender_t* sender, sender_strategy_t* strategy) {
     
     sender->strategy = strategy;
     return NOERROR;
+}
+
+
+/*
+    More Specified Functions
+*/
+
+bool pps_make(packet_queue_t* queue, void* args) {
+    if (!queue || !args) return false;
+
+    default_make_args_t* d_args = (default_make_args_t*)args;
+
+    // 1. Create a template DNS response payload.
+    struct dns_query* query[1];
+    struct dns_answer* answer[1];
+    
+    query[0] = new_dns_query_a(d_args->domain_name);
+    answer[0] = new_dns_answer_a(d_args->domain_name, inet_addr("8.8.8.8"), 3600);
+
+    uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, NULL, 0, FALSE);
+
+    uint8_t* packet_template = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    size_t packet_raw_len = make_udp_packet(packet_template, DNS_PKT_MAX_LEN,
+                                            inet_addr(d_args->src_ip), inet_addr(d_args->dst_ip),
+                                            d_args->src_port,
+                                            d_args->dst_port,
+                                            dns_payload, dns_payload_len);
+    free(dns_payload);
+    free_dns_query(query[0]);
+    free_dns_answer(answer[0]);
+
+    // 2. Loop `packets_to_generate` times, using the shared counter for TXID.
+    for (size_t i = 0; i < ((pps_make_args_t*)d_args)->count; i++) {
+        packet_t* new_pkt = (packet_t*)alloc_memory(sizeof(packet_t));
+        new_pkt->data = (uint8_t*)alloc_memory(packet_raw_len);
+        new_pkt->size = packet_raw_len;
+        new_pkt->next = NULL;
+
+        memcpy(new_pkt->data, packet_template, packet_raw_len);
+
+        // ** Modify the TXID using the shared, incrementing counter **
+        struct dnshdr* dnsh = (struct dnshdr*)(new_pkt->data + sizeof(struct iphdr) + sizeof(struct udphdr));
+        dnsh->id = htons(get_tx_id());
+
+        if (queue->head == NULL) {
+            queue->head = new_pkt;
+            queue->tail = new_pkt;
+        } else {
+            queue->tail->next = new_pkt;
+            queue->tail = new_pkt;
+        }
+    }
+    
+    free(packet_template);
+    return true;
 }

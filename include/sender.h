@@ -42,6 +42,12 @@ typedef struct {
 } default_make_args_t;
 
 typedef struct {
+    default_make_args_t default_args;
+
+    uint32_t count;
+} pps_make_args_t;
+
+typedef struct {
     // NULL, but can add more things
     // More Options 
 } default_send_args_t;
@@ -101,6 +107,7 @@ bool default_make(packet_queue_t* queue, void* args);
 ssize_t default_send(sender_t* sender, packet_t* packet, void* send_args);
 void default_build_work_cb(uv_work_t *req);
 void default_after_work_cb(uv_work_t *req, int status);
+bool pps_make(packet_queue_t *queue, void *args);
 
 int sender_init(sender_t *sender, uv_loop_t *loop, const char *ip, int port);
 int sender_set_strategy(sender_t *sender, sender_strategy_t* strategy); 
@@ -108,5 +115,6 @@ void sender_free(sender_t *sender);
 void sender_start(sender_t *sender);
 void sender_stop(sender_t *sender);
 void sender_poll_cb(uv_poll_t *handle, int status, int events);
+void sender_add_to_queue(sender_t *sender, packet_queue_t *packet_queue);
 
 #endif

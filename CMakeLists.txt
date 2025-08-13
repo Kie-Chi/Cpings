@@ -57,6 +57,7 @@ add_executable(attack_forwr src/attack_forwr.c)
 add_executable(test_ipfragment test/test_ipfragment.c)
 add_executable(test_build_fake_resp test/test_build_fake_resp.c)
 add_executable(test_sender test/test_sender.c)
+add_executable(test_pps_sender test/test_pps_sender.c)
 
 
 # --- 链接所有主要的可执行文件到核心库和线程库 ---
@@ -86,6 +87,18 @@ target_link_libraries(test_sender
 )
 
 target_include_directories(test_sender
+    PRIVATE
+    ${LIBUV_INCLUDE_DIRS}      # 添加 libuv 的头文件路径
+)
+
+target_link_libraries(test_pps_sender
+    PRIVATE
+    cpings_core                # 链接核心库 (已包含 sender 和 strategy)
+    ${CMAKE_THREAD_LIBS_INIT}  # 链接线程库
+    ${LIBUV_LIBRARIES}         # 链接 libuv 库
+)
+
+target_include_directories(test_pps_sender
     PRIVATE
     ${LIBUV_INCLUDE_DIRS}      # 添加 libuv 的头文件路径
 )

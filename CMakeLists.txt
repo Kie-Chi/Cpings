@@ -5,7 +5,7 @@ project(Cpings C)
 # --- 全局编译选项 ---
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
-set(CMAKE_C_EXTENSIONS OFF)
+# set(CMAKE_C_EXTENSIONS OFF)
 
 set(CMAKE_BUILD_TYPE Debug)
 #set(CMAKE_BUILD_TYPE Release)
@@ -18,10 +18,12 @@ add_compile_definitions(_USE_BINARYSEARCH)
 
 # add_compile_definitions(_GNU_SOURCE)
 # add_compile_definitions(_POSIX_C_SOURCE=200809L)
-add_compile_definitions(_DEFAULT_SOURCE)
+# add_compile_definitions(_DEFAULT_SOURCE)
 
 # --- 查找依赖库 ---
 find_package(Threads REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBUV REQUIRED libuv)
 
 # ==========================================================
 #                  核心库 (Core Library)
@@ -32,6 +34,8 @@ add_library(cpings_core STATIC
     utils/dns.c
     utils/scanner.c
     utils/fake.c
+    utils/sender.c
+    utils/strategy.c
 )
 
 target_include_directories(cpings_core
@@ -52,6 +56,7 @@ add_executable(attack_forwr src/attack_forwr.c)
 # test
 add_executable(test_ipfragment test/test_ipfragment.c)
 add_executable(test_build_fake_resp test/test_build_fake_resp.c)
+add_executable(test_sender test/test_sender.c)
 
 
 # --- 链接所有主要的可执行文件到核心库和线程库 ---
@@ -72,6 +77,18 @@ foreach(TARGET ${MAIN_TARGETS})
         ${CMAKE_THREAD_LIBS_INIT} # 链接线程库
     )
 endforeach()
+
+target_link_libraries(test_sender
+    PRIVATE
+    cpings_core                # 链接核心库 (已包含 sender 和 strategy)
+    ${CMAKE_THREAD_LIBS_INIT}  # 链接线程库
+    ${LIBUV_LIBRARIES}         # 链接 libuv 库
+)
+
+target_include_directories(test_sender
+    PRIVATE
+    ${LIBUV_INCLUDE_DIRS}      # 添加 libuv 的头文件路径
+)
 
 # ==========================================================
 #                  测试部分

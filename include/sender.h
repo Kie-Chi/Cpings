@@ -1,0 +1,106 @@
+#ifndef _SENDER_H_
+#define _SENDER_H_
+
+#include "common.h"
+#include "dns.h"
+#include "network.h"
+#include "util.h"
+#include <uv.h>
+#include <fcntl.h>
+#define NOERROR 0
+#define BROKEN_ERROR -1 // 缺失必要属性
+#define INIT_ERROR -2 // 初始化失败
+#define MAKE_ERROR -3 // 生成数据包失败
+#define SEND_ERROR -4 // 发送数据包失败
+
+typedef struct packet_s packet_t;
+typedef struct packet_queue_s packet_queue_t;
+typedef struct packet_work_s packet_work_t;
+typedef struct sender_strategy_s sender_strategy_s;
+typedef struct sender_s sender_t;
+
+
+struct packet_s {
+    uint8_t* data;
+    size_t size;
+    size_t capacity;
+    packet_t* next;
+    // Options...
+};
+
+typedef struct {
+    char* src_ip;
+    char* dst_ip;
+    uint16_t src_port;
+    uint16_t dst_port;
+    char* domain_name;
+} default_make_args_t;
+
+typedef struct {
+    // NULL, but can add more things
+} default_send_args_t;
+
+struct packet_queue_s {
+    packet_t* head;
+    packet_t* tail;
+};
+
+typedef bool (*make_packet_func)(packet_queue_t* queue, void* args);
+typedef bool (*make_packet_init)(packet_queue_t** queue_ptr);
+typedef void (*packet_free)(packet_queue_t* packet);
+typedef ssize_t (*send_packet_func)(sender_t *sender, packet_t *packet, void *send_args);
+
+struct packet_work_s {
+    uv_work_t work_req;
+    
+    make_packet_init init_func;
+    make_packet_func make_func;
+    packet_free free_func;
+    void* packet_args;
+
+    int error_code;
+    packet_queue_t* queue;
+
+    sender_t* sender_handle;
+    // Options...
+};
+
+struct sender_strategy_s {
+    void (*start)(sender_t* sender, void* strategy_data);
+    void (*stop)(sender_t* sender, void* strategy_data);
+    void (*free_data)(void* strategy_data);
+    send_packet_func send_func;
+    void *send_args;
+    void* data;
+};
+
+struct sender_s {
+    uv_loop_t* loop;
+    
+    uv_poll_t* poll_handle;
+    int sockfd;
+    struct sockaddr_in addr;
+    
+    sender_strategy_s* strategy;
+    packet_queue_t* send_queue;
+
+    volatile bool is_running;
+};
+
+
+
+void default_free(packet_queue_t* queue);
+bool default_init(packet_queue_t** queue_ptr);
+bool default_make(packet_queue_t* queue, void* args);
+ssize_t default_send(sender_t* sender, packet_t* packet, void* send_args);
+
+int sender_init(sender_t *sender, uv_loop_t *loop, const char *ip, int port);
+int sender_set_strategy(sender_t *sender, sender_strategy_s *strategy); 
+void sender_free(sender_t *sender);
+void sender_start(sender_t *sender);
+void sender_stop(sender_t *sender);
+
+void build_work_cb(uv_work_t *req);
+void send_after_work_cb(uv_work_t *req, int status);
+
+#endif

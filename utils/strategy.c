@@ -242,3 +242,95 @@ sender_strategy_t* create_strategy_pps(
 
     return strategy;
 }
+
+/*
+    Burst
+*/
+
+static void burst_timer_cb(uv_timer_t* handle) {
+    burst_data_t* data = (burst_data_t*)handle->data;
+    sender_t* sender = data->sender_handle;
+
+    if (!sender->is_running) {
+        return;
+    }
+    
+    printf("[BURST] Timer fired! Triggering packet generation task.\n");
+    packet_work_t* work = (packet_work_t*)malloc(sizeof(packet_work_t));
+    if (!work) {
+        fprintf(stderr, "Failed to allocate memory for burst work\n");
+        return;
+    }
+    memset(work, 0, sizeof(packet_work_t));
+    work->sender_handle = sender;
+    uv_queue_work(sender->loop, &work->work_req, 
+                  data->default_data.build_cb, 
+                  data->default_data.after_build_cb);
+}
+
+static void burst_start(sender_t* sender, void* strategy_data) {
+    burst_data_t* data = (burst_data_t*)strategy_data;
+    data->sender_handle = sender; // Store sender handle
+
+    uv_timer_init(sender->loop, &data->burst_timer);
+    data->burst_timer.data = data; // Link timer back to our data
+
+    uv_timer_start(&data->burst_timer, burst_timer_cb, data->delay_ms, data->interval_ms);
+}
+
+static void burst_stop(sender_t* sender, void* strategy_data) {
+    (void)sender;
+    burst_data_t* data = (burst_data_t*)strategy_data;
+    if (uv_is_active((uv_handle_t*)&data->burst_timer)) {
+        uv_timer_stop(&data->burst_timer);
+    }
+}
+
+static void burst_free_data(void* strategy_data) {
+    if (strategy_data) {
+        free(strategy_data);
+    }
+}
+
+sender_strategy_t* create_strategy_burst(
+    make_packet_init init_func,
+    packet_free free_func,
+    make_packet_func make_func,
+    void* packet_args,
+    send_packet_func send_func,
+    void* send_args,
+    uint64_t delay_ms,
+    uint64_t interval_ms
+) {
+    sender_strategy_t* strategy = (sender_strategy_t*)malloc(sizeof(sender_strategy_t));
+    if (!strategy) return NULL;
+
+    burst_data_t* data = (burst_data_t*)malloc(sizeof(burst_data_t));
+    if (!data) {
+        free(strategy);
+        return NULL;
+    }
+
+    // --- Populate common fields ---
+    data->default_data.init_func = init_func ? init_func : default_init;
+    data->default_data.free_func = free_func ? free_func : default_free;
+    data->default_data.make_func = make_func;
+    data->default_data.packet_args = packet_args;
+    data->default_data.build_cb = default_build_work_cb;
+    data->default_data.after_build_cb = default_after_work_cb;
+
+    // --- Populate burst-specific fields ---
+    data->delay_ms = delay_ms;
+    data->interval_ms = interval_ms;
+    data->sender_handle = NULL; // Will be set on start
+
+    // --- Populate strategy function pointers ---
+    strategy->data = data;
+    strategy->start = burst_start;
+    strategy->stop = burst_stop;
+    strategy->free_data = burst_free_data;
+    strategy->send_func = send_func ? send_func : default_send;
+    strategy->send_args = send_args;
+
+    return strategy;
+}

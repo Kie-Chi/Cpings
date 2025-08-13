@@ -27,6 +27,17 @@ typedef struct pps_data_s {
 
 } pps_data_t;
 
+typedef struct burst_data_s {
+    default_strategy_data_t default_data;
+
+    // Burst-specific fields
+    uv_timer_t burst_timer;
+    uint64_t delay_ms;     // Initial delay before the first burst
+    uint64_t interval_ms;  // Interval for repeated bursts (0 means no repeat)
+    
+    sender_t* sender_handle;
+} burst_data_t;
+
 sender_strategy_t* create_strategy_oneshot(
     make_packet_init init_func,
     packet_free free_func,
@@ -45,6 +56,17 @@ sender_strategy_t* create_strategy_pps(
     void* send_args,
     uint32_t pps,
     size_t high_watermark
+);
+
+sender_strategy_t* create_strategy_burst(
+    make_packet_init init_func,
+    packet_free free_func,
+    make_packet_func make_func,
+    void* packet_args,
+    send_packet_func send_func,
+    void* send_args,
+    uint64_t delay_ms,
+    uint64_t interval_ms
 );
 
 #endif

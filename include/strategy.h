@@ -4,13 +4,12 @@
 #include "sender.h"
 
 typedef struct {
-    make_packet_init init_func;
-    packet_free free_func;
-    make_packet_func make_func;
-    void* packet_args;
-} oneshot_data_t;
+    default_strategy_data_t default_data_t;
 
-sender_strategy_s *create_strategy_oneshot(
+    // More Options
+} oneshot_data_t;    
+
+sender_strategy_t* create_strategy_oneshot(
     make_packet_init init_func,
     packet_free free_func,
     make_packet_func make_func,

@@ -16,9 +16,12 @@
 typedef struct packet_s packet_t;
 typedef struct packet_queue_s packet_queue_t;
 typedef struct packet_work_s packet_work_t;
-typedef struct sender_strategy_s sender_strategy_s;
+typedef struct sender_strategy_s sender_strategy_t;
 typedef struct sender_s sender_t;
-
+typedef bool (*make_packet_func)(packet_queue_t *queue, void *args);
+typedef bool (*make_packet_init)(packet_queue_t **queue_ptr);
+typedef void (*packet_free)(packet_queue_t *packet);
+typedef ssize_t (*send_packet_func)(sender_t *sender, packet_t *packet, void *send_args);
 
 struct packet_s {
     uint8_t* data;
@@ -34,21 +37,30 @@ typedef struct {
     uint16_t src_port;
     uint16_t dst_port;
     char* domain_name;
+
+    // More Options
 } default_make_args_t;
 
 typedef struct {
     // NULL, but can add more things
+    // More Options 
 } default_send_args_t;
+
+typedef struct {
+    uv_work_cb build_cb;
+    uv_after_work_cb after_build_cb;
+    make_packet_init init_func;
+    packet_free free_func;
+    make_packet_func make_func;
+    void* packet_args;
+
+    // More Options
+} default_strategy_data_t;
 
 struct packet_queue_s {
     packet_t* head;
     packet_t* tail;
 };
-
-typedef bool (*make_packet_func)(packet_queue_t* queue, void* args);
-typedef bool (*make_packet_init)(packet_queue_t** queue_ptr);
-typedef void (*packet_free)(packet_queue_t* packet);
-typedef ssize_t (*send_packet_func)(sender_t *sender, packet_t *packet, void *send_args);
 
 struct packet_work_s {
     uv_work_t work_req;
@@ -80,27 +92,26 @@ struct sender_s {
     uv_poll_t* poll_handle;
     int sockfd;
     struct sockaddr_in addr;
-    
-    sender_strategy_s* strategy;
+
+    sender_strategy_t* strategy;
     packet_queue_t* send_queue;
 
     volatile bool is_running;
 };
 
 
-
 void default_free(packet_queue_t* queue);
 bool default_init(packet_queue_t** queue_ptr);
 bool default_make(packet_queue_t* queue, void* args);
 ssize_t default_send(sender_t* sender, packet_t* packet, void* send_args);
+void default_build_work_cb(uv_work_t *req);
+void default_after_work_cb(uv_work_t *req, int status);
 
 int sender_init(sender_t *sender, uv_loop_t *loop, const char *ip, int port);
-int sender_set_strategy(sender_t *sender, sender_strategy_s *strategy); 
+int sender_set_strategy(sender_t *sender, sender_strategy_t* strategy); 
 void sender_free(sender_t *sender);
 void sender_start(sender_t *sender);
 void sender_stop(sender_t *sender);
-
-void build_work_cb(uv_work_t *req);
-void send_after_work_cb(uv_work_t *req, int status);
+void sender_poll_cb(uv_poll_t *handle, int status, int events);
 
 #endif

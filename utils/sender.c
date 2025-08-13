@@ -13,43 +13,6 @@ static void free_packet(packet_t* packet) {
     free(packet);
 }
 
-static void sender_poll_cb(uv_poll_t* handle, int status, int events) {
-    sender_t* sender = (sender_t*)handle->data;
-    packet_queue_t* queue = (packet_queue_t*)sender->send_queue;
-
-    if (status < 0) {
-        fprintf(stderr, "Poll error: %s\n", uv_strerror(status));
-        return;
-    }
-
-    if (events & UV_WRITABLE) {
-        while (queue->head) {
-            packet_t* packet = queue->head;
-            ssize_t sent = sender->strategy->send_func(sender, packet, sender->strategy->send_args);
-            if (sent < 0) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    break;
-                } else {
-#ifdef _DEBUG
-                    printf("sender_poll_cb: unexpected error: %d\n", errno);
-#endif
-                    perror("sendto");
-                }
-            }
-            
-            queue->head = packet->next;
-            if (queue->head == NULL) {
-                queue->tail = NULL;
-            }
-            packet->next = NULL; // Decouple from chain before freeing
-            free_packet(packet);
-        }
-        if (queue->head == NULL) {
-            uv_poll_stop(sender->poll_handle);
-        }
-    }
-}
-
 static void sender_add_to_queue(sender_t* sender, packet_queue_t* packet_queue) {
     if (!packet_queue || !packet_queue->head) {
         return;
@@ -166,7 +129,7 @@ bool default_init(packet_queue_t** queue_ptr) {
     return true;
 }
 
-void build_work_cb(uv_work_t* req) {
+void default_build_work_cb(uv_work_t* req) {
     packet_work_t* work = (packet_work_t*)req;
     if (!work->free_func || !work->init_func || !work->make_func) {
         fprintf(stderr, "Missing necessary function pointers.\n");
@@ -188,7 +151,7 @@ void build_work_cb(uv_work_t* req) {
     work->error_code = NOERROR;
 }
 
-void send_after_work_cb(uv_work_t* req, int status) {
+void default_after_work_cb(uv_work_t* req, int status) {
     packet_work_t* work = (packet_work_t*)req;
     if (status == UV_ECANCELED) {
         fprintf(stderr, "Work request was cancelled.\n");
@@ -220,6 +183,42 @@ void send_after_work_cb(uv_work_t* req, int status) {
     free(work);
 }
 
+void sender_poll_cb(uv_poll_t* handle, int status, int events) {
+    sender_t* sender = (sender_t*)handle->data;
+    packet_queue_t* queue = (packet_queue_t*)sender->send_queue;
+
+    if (status < 0) {
+        fprintf(stderr, "Poll error: %s\n", uv_strerror(status));
+        return;
+    }
+
+    if (events & UV_WRITABLE) {
+        while (queue->head) {
+            packet_t* packet = queue->head;
+            ssize_t sent = sender->strategy->send_func(sender, packet, sender->strategy->send_args);
+            if (sent < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    break;
+                } else {
+#ifdef _DEBUG
+                    printf("sender_poll_cb: unexpected error: %d\n", errno);
+#endif
+                    perror("sendto");
+                }
+            }
+            
+            queue->head = packet->next;
+            if (queue->head == NULL) {
+                queue->tail = NULL;
+            }
+            packet->next = NULL; // Decouple from chain before freeing
+            free_packet(packet);
+        }
+        if (queue->head == NULL) {
+            uv_poll_stop(sender->poll_handle);
+        }
+    }
+}
 
 int sender_init(
     sender_t* sender, 
@@ -318,7 +317,7 @@ void sender_stop(sender_t* sender) {
 }
 
 
-int sender_set_strategy(sender_t* sender, sender_strategy_s* strategy) {
+int sender_set_strategy(sender_t* sender, sender_strategy_t* strategy) {
     if (!sender || !strategy) return BROKEN_ERROR;
     
     if (sender->strategy) {

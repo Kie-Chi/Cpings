@@ -35,7 +35,7 @@ int main(int argc, char** argv) {
     };
 
     // 4. Create the "oneshot" strategy, passing in our packet creation function
-    sender_strategy_s* strategy = create_strategy_oneshot(
+    sender_strategy_t* strategy = create_strategy_oneshot(
         default_init,
         default_free,
         default_make,

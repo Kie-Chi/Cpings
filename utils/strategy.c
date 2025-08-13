@@ -1,7 +1,7 @@
 #include "strategy.h"
 
-static void oneshot_start(sender_t* sender, void* strategy_data) {
-    oneshot_data_t* data = (oneshot_data_t*)strategy_data;
+static void default_start(sender_t* sender, void* strategy_data) {
+    default_strategy_data_t* data = (default_strategy_data_t*)strategy_data;
     packet_work_t* work = (packet_work_t*)malloc(sizeof(packet_work_t));
     if (!work) {
         fprintf(stderr, "Failed to allocate memory for oneshot work\n");
@@ -15,7 +15,7 @@ static void oneshot_start(sender_t* sender, void* strategy_data) {
     work->packet_args = data->packet_args;
     work->queue = NULL;
     work->error_code = NOERROR;
-    uv_queue_work(sender->loop, &work->work_req, build_work_cb, send_after_work_cb);
+    uv_queue_work(sender->loop, &work->work_req, data->build_cb, data->after_build_cb);
 }
 
 
@@ -31,7 +31,7 @@ static void oneshot_free_data(void* strategy_data) {
     }
 }
 
-sender_strategy_s *create_strategy_oneshot(
+sender_strategy_t* create_strategy_oneshot(
     make_packet_init init_func,
     packet_free free_func,
     make_packet_func make_func,
@@ -41,7 +41,7 @@ sender_strategy_s *create_strategy_oneshot(
 )
 {
     // 1. Allocate the strategy object
-    sender_strategy_s* strategy = (sender_strategy_s*)malloc(sizeof(sender_strategy_s));
+    sender_strategy_t* strategy = (sender_strategy_t*)malloc(sizeof(sender_strategy_t));
     if (!strategy) return NULL;
 
     // 2. Allocate the strategy-specific data
@@ -52,13 +52,15 @@ sender_strategy_s *create_strategy_oneshot(
     }
 
     // 3. Populate the data
-    data->init_func = init_func ? init_func : default_init;
-    data->make_func = make_func;
-    data->free_func = free_func ? free_func : default_free;
-    data->packet_args = packet_args;
+    data->default_data_t.init_func = init_func ? init_func : default_init;
+    data->default_data_t.make_func = make_func;
+    data->default_data_t.free_func = free_func ? free_func : default_free;
+    data->default_data_t.packet_args = packet_args;
+    data->default_data_t.build_cb = default_build_work_cb;
+    data->default_data_t.after_build_cb = default_after_work_cb;
 
     strategy->data = data;
-    strategy->start = oneshot_start;
+    strategy->start = default_start;
     strategy->stop = oneshot_stop;
     strategy->free_data = oneshot_free_data;
     strategy->send_func = send_func ? send_func : default_send;

@@ -22,6 +22,8 @@ typedef bool (*make_packet_func)(packet_queue_t *queue, void *args);
 typedef bool (*make_packet_init)(packet_queue_t **queue_ptr);
 typedef void (*packet_free)(packet_queue_t *packet);
 typedef ssize_t (*send_packet_func)(sender_t *sender, packet_t *packet, void *send_args);
+typedef bool (*stop_func)(void* state);
+typedef void (*free_func)(void* data);
 
 struct packet_s {
     uint8_t* data;
@@ -99,6 +101,11 @@ struct sender_s {
     packet_queue_t* send_queue;
 
     volatile bool is_running;
+
+    uv_timer_t* stop_timer;
+    stop_func stop_func;
+    void* state;
+    free_func free_func;
 };
 
 
@@ -117,5 +124,12 @@ void sender_start(sender_t *sender);
 void sender_stop(sender_t *sender);
 void sender_poll_cb(uv_poll_t *handle, int status, int events);
 void sender_add_to_queue(sender_t *sender, packet_queue_t *packet_queue);
+int sender_set_stop_cond(
+    sender_t *sender,
+    stop_func stop_func,
+    void *state,
+    free_func free_func,
+    uint64_t interval // MilliSeconds
+);
 
 #endif

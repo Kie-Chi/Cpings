@@ -4,6 +4,10 @@
 
 #include "sender.h"
 
+/*
+    Free Single Packet
+*/
+
 static void free_packet(packet_t* packet) {
     if (!packet) return;
     if (packet->data) {
@@ -31,6 +35,19 @@ static void on_stop(uv_async_t* handle) {
 */
 static void on_handle_free(uv_handle_t* handle) {
     free(handle);
+}
+
+/*
+    Check if to Stop
+*/
+
+static void sender_check_stop(uv_timer_t* timer) {
+    sender_t* sender = (sender_t*)timer->data;
+    if (sender->stop_func && sender->stop_func(sender->state)) {
+        printf("[Timer] Stop condition met, stopping sender.\n");
+        uv_async_send(sender->stop_async);
+        uv_timer_stop(timer);
+    }
 }
 
 ssize_t default_send(sender_t* sender, packet_t* packet, void* send_args) {
@@ -314,6 +331,13 @@ int sender_init(
     sender->stop_async->data = sender;
     uv_unref((uv_handle_t*)sender->stop_async); // don't care much about the background-handle
 
+    // Set Stop Condition to NULL !!!
+    // if needed, please run sender_set_stop_cond()
+    sender->stop_timer = NULL;
+    sender->stop_func = NULL;
+    sender->state = NULL;
+    sender->free_func = NULL;
+
     // Set sender Not Running !!!
     sender->is_running = false;
     return 0;
@@ -329,7 +353,25 @@ void sender_free(sender_t* sender) {
         free(sender->strategy);
         sender->strategy = NULL;
     }
-    
+
+    // Stop timer
+    if (sender->stop_timer) {
+        if (uv_is_active((uv_handle_t*)sender->stop_timer)) {
+            uv_timer_stop(sender->stop_timer);
+        }
+        if (!uv_is_closing((uv_handle_t*)sender->stop_timer)) {
+            uv_close((uv_handle_t*)sender->stop_timer, on_handle_free);
+        }
+        sender->stop_timer = NULL;
+    }
+
+    // Free Stop Timer Data
+    if (sender->free_func && sender->state) {
+        sender->free_func(sender->state);
+        sender->state = NULL;
+        sender->free_func = NULL;
+    }
+
     // Stop polling if it's active
     if (uv_is_active((uv_handle_t*)sender->poll_handle)) {
         uv_poll_stop(sender->poll_handle);
@@ -399,6 +441,59 @@ int sender_set_strategy(sender_t* sender, sender_strategy_t* strategy) {
     }
     
     sender->strategy = strategy;
+    return NOERROR;
+}
+
+int sender_set_stop_cond(
+    sender_t *sender,
+    stop_func stop_func,
+    void *state,
+    free_func free_func,
+    uint64_t interval // MilliSeconds
+) {
+    if (!sender || !stop_func) {
+#ifdef _DEBUG
+        printf("sender_set_stop_cond: error");
+        if (!sender) {
+            printf(" ,for no sender\n");
+        }
+        if (!stop_func) {
+            printf(" ,for no stop_func\n");
+        }
+#endif
+        return BROKEN_ERROR;
+    }
+
+    // Check if stop timer exists
+    if (sender->stop_timer) {
+        uv_timer_stop(sender->stop_timer);
+        uv_close((uv_handle_t*)sender->stop_timer, on_handle_free);
+        
+        if (sender->free_func && sender->state) {
+            sender->free_func(sender->state);
+        }
+    }
+
+    // Re-alloc for stop timer
+    sender->stop_timer = (uv_timer_t*)malloc(sizeof(uv_timer_t));
+    if (!sender->stop_timer) {
+        return INIT_ERROR;
+    }
+
+    // Init stop timer
+    uv_timer_init(sender->loop, sender->stop_timer);
+
+    // Save stop condition callback and state
+    sender->stop_func = stop_func;
+    sender->state = state;
+    sender->free_func = free_func;
+
+    // Attach sender as data to the timer for access in the callback
+    sender->stop_timer->data = sender;
+
+    // Start stop timer
+    uv_timer_start(sender->stop_timer, sender_check_stop, interval, interval);
+
     return NOERROR;
 }
 

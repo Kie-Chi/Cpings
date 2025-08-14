@@ -9,7 +9,7 @@ int main(int argc, char** argv) {
     uint16_t target_port = 12345;
     uint16_t src_port = 53;
     char* domain_name = "example.com";
-    char* src_ip = "192.168.3.131"; // Spoofed source IP
+    char* src_ip = "192.168.3.148"; // Spoofed source IP
     // Initialize DNS subsystem for packet creation
     dns_init();
 

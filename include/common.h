@@ -7,6 +7,7 @@
 
 #include <stdlib.h>
 #include <stdio.h>
+#include <stddef.h>
 #include <unistd.h>
 #include <errno.h>
 #include <string.h>
@@ -26,5 +27,7 @@
 
 #define TRUE  1
 #define FALSE 0
+#define container_of(ptr, type, member) \
+    ((type *)((char *)(ptr) - offsetof(type, member)))
 
 #endif // !_COMMON_H_

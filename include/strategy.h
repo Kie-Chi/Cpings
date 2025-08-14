@@ -38,6 +38,35 @@ typedef struct burst_data_s {
     sender_t* sender_handle;
 } burst_data_t;
 
+
+typedef struct multitask_work_s {
+    packet_work_t work;
+
+    make_packet_func make_func;
+    void* make_args;
+    void (*free_args_func)(void*);
+
+    struct multitask_work_s* next;
+} multitask_work_t;
+
+typedef struct multitask_data_s {
+    default_strategy_data_t default_data;
+
+    multitask_work_t* queue_head;
+    multitask_work_t* queue_tail;
+    
+    pthread_mutex_t queue_mutex;
+    uv_async_t work_trigger_async;
+    
+    volatile bool is_working;
+
+    sender_t* sender_handle;
+} multitask_data_t;
+
+/*
+    Normal-Type Create Function of Strategy
+*/
+
 sender_strategy_t* create_strategy_oneshot(
     make_packet_init init_func,
     packet_free free_func,
@@ -67,6 +96,22 @@ sender_strategy_t* create_strategy_burst(
     void* send_args,
     uint64_t delay_ms,
     uint64_t interval_ms
+);
+
+/*
+    Task-Drive Type Create Function of Strategy
+*/
+
+sender_strategy_t* create_strategy_multitask(
+    send_packet_func send_func,
+    void* send_args
+);
+
+int multitask_submit_work(
+    sender_t* sender,
+    make_packet_func make_func,
+    void* make_args,
+    void (*free_args_func)(void*)
 );
 
 #endif

@@ -334,3 +334,215 @@ sender_strategy_t* create_strategy_burst(
 
     return strategy;
 }
+
+/*
+    Multi-Task 
+*/
+
+static void multitask_after_work_cb(uv_work_t* req, int status) {
+    // Robust but seems no-use
+    packet_work_t* p_work = (packet_work_t*)req;
+    multitask_work_t* work = container_of(p_work, multitask_work_t, work);
+    
+    sender_t* sender = work->work.sender_handle;
+    multitask_data_t* data = (multitask_data_t*)sender->strategy->data;
+
+    if (status != UV_ECANCELED && work->work.error_code == NOERROR && work->work.queue) {
+#ifdef _DEBUG
+        printf("multitask_aw_cb: generate packets successfully, sent to queue\n");
+#endif
+        sender_add_to_queue(sender, work->work.queue);
+        free(work->work.queue); 
+    } else if (work->work.error_code != NOERROR) {
+#ifdef _DEBUG
+        fprintf(stderr, "multitask_aw_cb: error when generate packets, for %d\n", work->work.error_code);
+#endif
+        if (work->work.queue) default_free(work->work.queue);
+    }
+
+    if (work->free_args_func && work->make_args) {
+        work->free_args_func(work->make_args);
+    }
+    free(work);
+
+    pthread_mutex_lock(&data->queue_mutex);
+    data->is_working = false;
+    if (data->queue_head != NULL) {
+#ifdef _DEBUG
+        printf("multitask_aw_cb: there are more tasks in the queue, triggering scheduler\n");
+#endif
+        uv_async_send(&data->work_trigger_async);
+    } else {
+#ifdef _DBUEG
+        printf("multitask_aw_cb: all tasks completed, entering wait state\n");
+#endif
+    }
+    pthread_mutex_unlock(&data->queue_mutex);
+}
+
+
+static void multitask_build_work_cb(uv_work_t* req) {
+    packet_work_t* p_work = (packet_work_t*)req;
+    multitask_work_t* work = container_of(p_work, multitask_work_t, work);
+    
+    work->work.error_code = NOERROR;
+    work->work.queue = NULL;
+
+    if (!default_init(&work->work.queue)) {
+        work->work.error_code = INIT_ERROR;
+        return;
+    }
+    if (!work->make_func(work->work.queue, work->make_args)) {
+        work->work.error_code = MAKE_ERROR;
+        default_free(work->work.queue);
+        work->work.queue = NULL;
+        return;
+    }
+}
+
+static void multitask_async_cb(uv_async_t* handle) {
+    multitask_data_t* data = (multitask_data_t*)handle->data;
+    
+    pthread_mutex_lock(&data->queue_mutex);
+    
+    if (data->is_working || data->queue_head == NULL) {
+        pthread_mutex_unlock(&data->queue_mutex);
+        return;
+    }
+
+    data->is_working = true;
+    multitask_work_t* work_to_do = data->queue_head;
+    data->queue_head = data->queue_head->next;
+    if (data->queue_head == NULL) {
+        data->queue_tail = NULL;
+    }
+    
+    pthread_mutex_unlock(&data->queue_mutex);
+#ifdef _DEBUG
+    printf("mutlitask_aw_cb: dispatch a work to do\n");
+#endif
+    work_to_do->work.sender_handle = data->sender_handle;
+    uv_queue_work(data->sender_handle->loop, &work_to_do->work.work_req,
+                  multitask_build_work_cb,
+                  multitask_after_work_cb);
+}
+
+static void multitask_start(sender_t* sender, void* strategy_data) {
+    multitask_data_t* data = (multitask_data_t*)strategy_data;
+    data->sender_handle = sender;
+}
+
+static void multitask_stop(sender_t* sender, void* strategy_data) {
+    multitask_data_t* data = (multitask_data_t*)strategy_data;
+    if (uv_is_active((uv_handle_t*)&data->work_trigger_async)) {
+        uv_close((uv_handle_t*)&data->work_trigger_async, NULL);
+    }
+    
+    pthread_mutex_lock(&data->queue_mutex);
+    multitask_work_t* current = data->queue_head;
+    while(current) {
+        multitask_work_t* next = current->next;
+        if (current->free_args_func && current->make_args) {
+            current->free_args_func(current->make_args);
+        }
+        free(current);
+        current = next;
+    }
+    data->queue_head = NULL;
+    data->queue_tail = NULL;
+    pthread_mutex_unlock(&data->queue_mutex);
+}
+
+static void multitask_free_data(void* strategy_data) {
+    multitask_data_t* data = (multitask_data_t*)strategy_data;
+    if (!data) return;
+    multitask_stop(NULL, data);
+    pthread_mutex_destroy(&data->queue_mutex);
+    free(data);
+}
+
+sender_strategy_t* create_strategy_multitask(
+    send_packet_func send_func,
+    void* send_args
+) {
+    sender_strategy_t* strategy = (sender_strategy_t*)malloc(sizeof(sender_strategy_t));
+    if (!strategy) return NULL;
+
+    multitask_data_t* data = (multitask_data_t*)malloc(sizeof(multitask_data_t));
+    if (!data) {
+        free(strategy);
+        return NULL;
+    }
+    
+    memset(data, 0, sizeof(multitask_data_t));
+    pthread_mutex_init(&data->queue_mutex, NULL);
+    data->is_working = false;
+
+    strategy->data = data;
+    strategy->start = multitask_start;
+    strategy->stop = multitask_stop;
+    strategy->free_data = multitask_free_data;
+    strategy->send_func = send_func ? send_func : default_send;
+    strategy->send_args = send_args;
+
+    data->default_data.init_func = default_init;
+    data->default_data.free_func = default_free;
+
+    return strategy;
+}
+
+int multitask_submit_work(
+    sender_t* sender,
+    make_packet_func make_func,
+    void* make_args,
+    void (*free_args_func)(void*)
+) {
+    if (!sender || !sender->strategy || sender->strategy->start != multitask_start) {
+        fprintf(stderr, "fail to submit work");
+#ifdef _DEBUG
+        if (!sender) {
+            fprintf(stderr, ", for no sender\n");
+        }
+        if (!sender->strategy) {
+            fprintf(stderr, ", for no strategy\n");
+        }
+        if (sender->strategy->start != multitask_start) {
+            fprintf(stderr, ", for not multitask strategy\n");
+        }
+#endif
+        return BROKEN_ERROR;
+    }
+    multitask_data_t* data = (multitask_data_t*)sender->strategy->data;
+
+    multitask_work_t* new_work = (multitask_work_t*)alloc_memory(sizeof(multitask_work_t));
+    if (!new_work) {
+        fprintf(stderr, "alloc memory error\n");
+        return INIT_ERROR;
+    }
+    new_work->make_func = make_func;
+    new_work->make_args = make_args;
+    new_work->free_args_func = free_args_func;
+    
+    pthread_mutex_lock(&data->queue_mutex);
+    if (data->queue_tail == NULL) {
+        data->queue_head = new_work;
+        data->queue_tail = new_work;
+    } else {
+        data->queue_tail->next = new_work;
+        data->queue_tail = new_work;
+    }
+    pthread_mutex_unlock(&data->queue_mutex);
+
+    if (data->work_trigger_async.data == NULL) {
+        uv_async_init(sender->loop, &data->work_trigger_async, multitask_async_cb);
+        data->work_trigger_async.data = data;
+    }
+    
+#ifdef _DEBUG
+    printf("multitask_submit_work: submit a work to do\n");
+#endif
+    uv_async_send(&data->work_trigger_async);
+
+    return 0;
+}
+

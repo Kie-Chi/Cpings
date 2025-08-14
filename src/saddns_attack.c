@@ -72,7 +72,7 @@ bool make_saddns_spoof_chunk(packet_queue_t* queue, void* args) {
     saddns_task_args_t* task_args = chunk_args->task_info;
 
     if (*(chunk_args->total_packets_sent) > UINT16_MAX) {
-        return true; 
+        return false; 
     }
 
     struct dns_query* query[1];

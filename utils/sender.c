@@ -174,6 +174,7 @@ void default_after_work_cb(uv_work_t* req, int status) {
         fprintf(stderr, "Packet work failed with error code: %d\n", work->error_code);
         // Note: Cleanup should have already happened in the worker thread on MAKE_ERROR
         free(work);
+        uv_async_send(sender->stop_async); // Stop the sender on error
         return;
     }
 

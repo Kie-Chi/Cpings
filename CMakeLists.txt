@@ -48,6 +48,7 @@ target_include_directories(cpings_core
 # src
 add_executable(udpscan src/udpscan.c)
 add_executable(saddns src/saddns_attack.c)
+add_executable(saddns_l src/saddns_attack_lower.c)
 
 # test
 add_executable(test_ipfragment test/test_ipfragment.c)
@@ -62,6 +63,7 @@ add_executable(test_multitask_limit_sender test/test_multitask_limit_sender.c)
 # --- 链接所有主要的可执行文件到核心库和线程库 ---
 set(MAIN_TARGETS
     saddns
+    saddns_l
     udpscan
     test_ipfragment
     test_build_fake_resp

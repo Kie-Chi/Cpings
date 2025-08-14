@@ -85,7 +85,7 @@ int main(int argc, char** argv) {
 
     // 3. Create and set the Multi-Task strategy
     // This strategy itself is simple, as it just provides a framework for receiving tasks.
-    sender_strategy_t* strategy = create_strategy_multitask(NULL, NULL);
+    sender_strategy_t* strategy = create_strategy_multitask(NULL, NULL, 10);
     if (!strategy) {
         fprintf(stderr, "Failed to create multi-task strategy\n");
         sender_free(&my_sender);

@@ -56,6 +56,7 @@ add_executable(test_sender test/test_sender.c)
 add_executable(test_pps_sender test/test_pps_sender.c)
 add_executable(test_burst_sender test/test_burst_sender.c)
 add_executable(test_multitask_sender test/test_multitask_sender.c)
+add_executable(test_multitask_limit_sender test/test_multitask_limit_sender.c)
 
 
 # --- 链接所有主要的可执行文件到核心库和线程库 ---
@@ -68,6 +69,7 @@ set(MAIN_TARGETS
     test_pps_sender
     test_burst_sender
     test_multitask_sender
+    test_multitask_limit_sender
 )
 
 foreach(TARGET ${MAIN_TARGETS})

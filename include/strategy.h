@@ -23,8 +23,8 @@ typedef struct pps_data_s {
     volatile bool producing;
 
     pthread_mutex_t buffer_mutex;
-    sender_t* sender_handle;
 
+    sender_t* sender_handle;
 } pps_data_t;
 
 typedef struct burst_data_s {
@@ -59,6 +59,10 @@ typedef struct multitask_data_s {
     uv_async_t work_trigger_async;
     
     volatile bool is_working;
+
+    pthread_cond_t queue_not_full_cond;
+    size_t max_queue_size;
+    volatile size_t current_queue_size;
 
     sender_t* sender_handle;
 } multitask_data_t;
@@ -104,7 +108,8 @@ sender_strategy_t* create_strategy_burst(
 
 sender_strategy_t* create_strategy_multitask(
     send_packet_func send_func,
-    void* send_args
+    void* send_args,
+    size_t max_queue_size
 );
 
 int multitask_submit_work(

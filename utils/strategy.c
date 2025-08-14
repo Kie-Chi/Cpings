@@ -416,11 +416,17 @@ static void multitask_async_cb(uv_async_t* handle) {
     if (data->queue_head == NULL) {
         data->queue_tail = NULL;
     }
+    data->current_queue_size--;
+
+    if (data->max_queue_size > 0 && data->current_queue_size == data->max_queue_size - 1) {
+#ifdef _DEBUG
+        printf("multitask_bw_cb: Queue is no longer full. Signaling a waiting submitter.\n");
+#endif 
+        pthread_cond_signal(&data->queue_not_full_cond);
+    }
     
     pthread_mutex_unlock(&data->queue_mutex);
-#ifdef _DEBUG
-    printf("mutlitask_aw_cb: dispatch a work to do\n");
-#endif
+
     work_to_do->work.sender_handle = data->sender_handle;
     uv_queue_work(data->sender_handle->loop, &work_to_do->work.work_req,
                   multitask_build_work_cb,
@@ -458,24 +464,30 @@ static void multitask_free_data(void* strategy_data) {
     if (!data) return;
     multitask_stop(NULL, data);
     pthread_mutex_destroy(&data->queue_mutex);
+    pthread_cond_destroy(&data->queue_not_full_cond);
     free(data);
 }
 
 sender_strategy_t* create_strategy_multitask(
     send_packet_func send_func,
-    void* send_args
+    void* send_args,
+    size_t max_queue_size
 ) {
-    sender_strategy_t* strategy = (sender_strategy_t*)malloc(sizeof(sender_strategy_t));
+    sender_strategy_t* strategy = (sender_strategy_t*)alloc_memory(sizeof(sender_strategy_t));
     if (!strategy) return NULL;
 
-    multitask_data_t* data = (multitask_data_t*)malloc(sizeof(multitask_data_t));
+    multitask_data_t* data = (multitask_data_t*)alloc_memory(sizeof(multitask_data_t));
     if (!data) {
         free(strategy);
         return NULL;
     }
     
-    memset(data, 0, sizeof(multitask_data_t));
     pthread_mutex_init(&data->queue_mutex, NULL);
+
+    pthread_cond_init(&data->queue_not_full_cond, NULL);
+    data->max_queue_size = max_queue_size;
+    data->current_queue_size = 0;
+
     data->is_working = false;
 
     strategy->data = data;
@@ -524,6 +536,14 @@ int multitask_submit_work(
     new_work->free_args_func = free_args_func;
     
     pthread_mutex_lock(&data->queue_mutex);
+    if (data->max_queue_size > 0) {
+        while (data->current_queue_size >= data->max_queue_size) {
+#ifdef _DEBUG
+            printf("multitask_submit_work: queue is full (size: %zu). Waiting...\n", data->current_queue_size);
+#endif
+            pthread_cond_wait(&data->queue_not_full_cond, &data->queue_mutex);
+        }
+    }
     if (data->queue_tail == NULL) {
         data->queue_head = new_work;
         data->queue_tail = new_work;
@@ -531,6 +551,7 @@ int multitask_submit_work(
         data->queue_tail->next = new_work;
         data->queue_tail = new_work;
     }
+    data->current_queue_size++;
     pthread_mutex_unlock(&data->queue_mutex);
 
     if (data->work_trigger_async.data == NULL) {

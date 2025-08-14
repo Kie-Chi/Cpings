@@ -175,6 +175,8 @@ static void spoof_callback_burst(uint16_t port) {
         default_free,
         make_saddns_spoof_chunk, // 使用分块生成函数
         make_args,               // 传递包含状态的参数
+        NULL,
+        NULL,
         NULL,                    // 使用默认发送逻辑
         NULL,
         0,                       // 立即开始

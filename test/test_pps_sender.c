@@ -65,8 +65,10 @@ int main(int argc, char** argv) {
         default_free,        // Use default queue free
         pps_make,      // Our new function to generate N packets
         &packet_args,        // Arguments for our new make function
+        NULL,
         NULL,                // Use default send function
         NULL,                // No special send arguments
+        NULL,
         pps,                 // The desired packets-per-second rate
         high_watermark       // The buffer's high watermark
     );

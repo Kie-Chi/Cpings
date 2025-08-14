@@ -58,7 +58,9 @@ int main(int argc, char** argv) {
         default_free,
         pps_make,   // <<< Use the burst-aware make function
         &packet_args,     // <<< Pass the pps_make_args_t struct
+        NULL,
         NULL,             // Use default send function
+        NULL,
         NULL,
         delay_ms,         // Initial delay
         interval_ms       // Repeat interval (0 for single shot)

@@ -74,7 +74,7 @@ int main(int argc, char** argv) {
     printf("[+] Sender initialized.\n");
 
     printf("[*] Creating Multi-Task strategy with a bounded queue of size %d.\n", MAX_QUEUE_CAPACITY);
-    sender_strategy_t* strategy = create_strategy_multitask(NULL, NULL, MAX_QUEUE_CAPACITY);
+    sender_strategy_t* strategy = create_strategy_multitask(NULL, NULL, NULL, MAX_QUEUE_CAPACITY);
     if (!strategy) {
         fprintf(stderr, "Failed to create multi-task strategy\n");
         sender_free(&my_sender);

@@ -71,7 +71,9 @@ int main(int argc, char **argv) {
         default_free,
         pps_make,
         &make_args,
+        NULL,
         default_send,
+        NULL,
         NULL,
         100,      // 发送速率: 100 pps
         500      // 缓冲区高水位线

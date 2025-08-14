@@ -3,7 +3,7 @@
 static void default_start(sender_t* sender, void* strategy_data) {
     default_strategy_data_t* data = (default_strategy_data_t*)strategy_data;
     
-    packet_work_t* work = (packet_work_t*)malloc(sizeof(packet_work_t));
+    packet_work_t* work = (packet_work_t*)alloc_memory(sizeof(packet_work_t));
     if (!work) {
         fprintf(stderr, "Failed to allocate memory for oneshot work\n");
         return;
@@ -26,6 +26,13 @@ static void oneshot_stop(sender_t* sender, void* strategy_data) {
 }
 
 static void oneshot_free_data(void* strategy_data) {
+    oneshot_data_t* data = (oneshot_data_t*)strategy_data;
+    if (!data) return;
+
+    if (data->default_data.free_packet_args_func && data->default_data.packet_args) {
+        data->default_data.free_packet_args_func(data->default_data.packet_args);
+    }
+
     if (strategy_data) {
         free(strategy_data);
     }
@@ -33,19 +40,21 @@ static void oneshot_free_data(void* strategy_data) {
 
 sender_strategy_t* create_strategy_oneshot(
     make_packet_init init_func,
-    packet_free free_func,
+    packet_free free_packet_func,
     make_packet_func make_func,
     void* packet_args,
+    free_func free_packet_args_func,
     send_packet_func send_func,
-    void* send_args
+    void* send_args,
+    free_func free_send_args_func
 )
 {
     // 1. Allocate the strategy object
-    sender_strategy_t* strategy = (sender_strategy_t*)malloc(sizeof(sender_strategy_t));
+    sender_strategy_t* strategy = (sender_strategy_t*)alloc_memory(sizeof(sender_strategy_t));
     if (!strategy) return NULL;
 
     // 2. Allocate the strategy-specific data
-    oneshot_data_t* data = (oneshot_data_t*)malloc(sizeof(oneshot_data_t));
+    oneshot_data_t* data = (oneshot_data_t*)alloc_memory(sizeof(oneshot_data_t));
     if (!data) {
         free(strategy);
         return NULL;
@@ -54,7 +63,7 @@ sender_strategy_t* create_strategy_oneshot(
     // 3. Populate the data
     data->default_data.init_func = init_func ? init_func : default_init;
     data->default_data.make_func = make_func;
-    data->default_data.free_func = free_func ? free_func : default_free;
+    data->default_data.free_func = free_packet_func ? free_packet_func : default_free;
     data->default_data.packet_args = packet_args;
     data->default_data.build_cb = default_build_work_cb;
     data->default_data.after_build_cb = default_after_work_cb;
@@ -153,7 +162,7 @@ static void pps_timer_cb(uv_timer_t* handle) {
         
         printf("[PPS] Buffer low (size: %zu). Dispatching new producer task.\n", data->private_queue_size);
 
-        packet_work_t* work = (packet_work_t*)malloc(sizeof(packet_work_t));
+        packet_work_t* work = (packet_work_t*)alloc_memory(sizeof(packet_work_t));
         memset(work, 0, sizeof(packet_work_t));
         work->sender_handle = data->sender_handle;
         
@@ -185,6 +194,10 @@ static void pps_free_data(void* strategy_data) {
     pps_data_t* data = (pps_data_t*)strategy_data;
     if (!data) return;
 
+    if (data->default_data.free_packet_args_func && data->default_data.packet_args) {
+        data->default_data.free_packet_args_func(data->default_data.packet_args);
+    }
+
     pthread_mutex_destroy(&data->buffer_mutex);
     if (data->private_queue) {
         data->default_data.free_func(data->private_queue);
@@ -193,14 +206,20 @@ static void pps_free_data(void* strategy_data) {
 }
 
 sender_strategy_t* create_strategy_pps(
-    make_packet_init init_func, packet_free free_func, make_packet_func make_func,
-    void* packet_args, send_packet_func send_func, void* send_args,
+    make_packet_init init_func, 
+    packet_free free_packet_func, 
+    make_packet_func make_func,
+    void* packet_args, 
+    free_func free_packet_args_func,
+    send_packet_func send_func, 
+    void* send_args,
+    free_func free_send_args_func,
     uint32_t pps, size_t high_watermark
 ) {
-    sender_strategy_t* strategy = (sender_strategy_t*)malloc(sizeof(sender_strategy_t));
+    sender_strategy_t* strategy = (sender_strategy_t*)alloc_memory(sizeof(sender_strategy_t));
     if (!strategy) return NULL;
 
-    pps_data_t* data = (pps_data_t*)malloc(sizeof(pps_data_t));
+    pps_data_t* data = (pps_data_t*)alloc_memory(sizeof(pps_data_t));
     if (!data) {
         free(strategy);
         return NULL;
@@ -213,7 +232,7 @@ sender_strategy_t* create_strategy_pps(
     data->private_queue_size = 0;
     data->sender_handle = NULL; // Will be set on start
     pthread_mutex_init(&data->buffer_mutex, NULL);
-    data->private_queue = malloc(sizeof(packet_queue_t));
+    data->private_queue = alloc_memory(sizeof(packet_queue_t));
     if (!data->private_queue) {
         pthread_mutex_destroy(&data->buffer_mutex);
         free(data);
@@ -226,7 +245,7 @@ sender_strategy_t* create_strategy_pps(
 
     // --- Populate common fields ---
     data->default_data.init_func = init_func ? init_func : default_init;
-    data->default_data.free_func = free_func ? free_func : default_free;
+    data->default_data.free_func = free_packet_func ? free_packet_func : default_free;
     data->default_data.make_func = make_func;
     data->default_data.packet_args = packet_args;
     data->default_data.build_cb = default_build_work_cb; 
@@ -256,7 +275,7 @@ static void burst_timer_cb(uv_timer_t* handle) {
     }
     
     printf("[BURST] Timer fired! Triggering packet generation task.\n");
-    packet_work_t* work = (packet_work_t*)malloc(sizeof(packet_work_t));
+    packet_work_t* work = (packet_work_t*)alloc_memory(sizeof(packet_work_t));
     if (!work) {
         fprintf(stderr, "Failed to allocate memory for burst work\n");
         return;
@@ -287,6 +306,13 @@ static void burst_stop(sender_t* sender, void* strategy_data) {
 }
 
 static void burst_free_data(void* strategy_data) {
+    burst_data_t* data = (burst_data_t*)strategy_data;
+    if (!data) return;
+
+    if (data->default_data.free_packet_args_func && data->default_data.packet_args) {
+        data->default_data.free_packet_args_func(data->default_data.packet_args);
+    }
+
     if (strategy_data) {
         free(strategy_data);
     }
@@ -294,18 +320,20 @@ static void burst_free_data(void* strategy_data) {
 
 sender_strategy_t* create_strategy_burst(
     make_packet_init init_func,
-    packet_free free_func,
+    packet_free free_packet_func,
     make_packet_func make_func,
     void* packet_args,
+    free_func free_packet_args_func,
     send_packet_func send_func,
     void* send_args,
+    free_func free_send_args_func,
     uint64_t delay_ms,
     uint64_t interval_ms
 ) {
-    sender_strategy_t* strategy = (sender_strategy_t*)malloc(sizeof(sender_strategy_t));
+    sender_strategy_t* strategy = (sender_strategy_t*)alloc_memory(sizeof(sender_strategy_t));
     if (!strategy) return NULL;
 
-    burst_data_t* data = (burst_data_t*)malloc(sizeof(burst_data_t));
+    burst_data_t* data = (burst_data_t*)alloc_memory(sizeof(burst_data_t));
     if (!data) {
         free(strategy);
         return NULL;
@@ -313,7 +341,7 @@ sender_strategy_t* create_strategy_burst(
 
     // --- Populate common fields ---
     data->default_data.init_func = init_func ? init_func : default_init;
-    data->default_data.free_func = free_func ? free_func : default_free;
+    data->default_data.free_func = free_packet_func ? free_packet_func : default_free;
     data->default_data.make_func = make_func;
     data->default_data.packet_args = packet_args;
     data->default_data.build_cb = default_build_work_cb;
@@ -462,6 +490,11 @@ static void multitask_stop(sender_t* sender, void* strategy_data) {
 static void multitask_free_data(void* strategy_data) {
     multitask_data_t* data = (multitask_data_t*)strategy_data;
     if (!data) return;
+
+    if (data->default_data.free_packet_args_func && data->default_data.packet_args) {
+        data->default_data.free_packet_args_func(data->default_data.packet_args);
+    }
+
     multitask_stop(NULL, data);
     pthread_mutex_destroy(&data->queue_mutex);
     pthread_cond_destroy(&data->queue_not_full_cond);
@@ -471,6 +504,7 @@ static void multitask_free_data(void* strategy_data) {
 sender_strategy_t* create_strategy_multitask(
     send_packet_func send_func,
     void* send_args,
+    free_func free_send_args_func,
     size_t max_queue_size
 ) {
     sender_strategy_t* strategy = (sender_strategy_t*)alloc_memory(sizeof(sender_strategy_t));
@@ -499,6 +533,7 @@ sender_strategy_t* create_strategy_multitask(
 
     data->default_data.init_func = default_init;
     data->default_data.free_func = default_free;
+    data->default_data.make_func = NULL; // No default make function
 
     return strategy;
 }

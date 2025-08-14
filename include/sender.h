@@ -61,6 +61,7 @@ typedef struct {
     packet_free free_func;
     make_packet_func make_func;
     void* packet_args;
+    free_func free_packet_args_func;
 
     // More Options
 } default_strategy_data_t;
@@ -86,6 +87,7 @@ struct sender_strategy_s {
     void (*free_data)(void* strategy_data);
     send_packet_func send_func;
     void *send_args;
+    free_func free_send_args_func;
     void* data; // strategy_data_t
 };
 

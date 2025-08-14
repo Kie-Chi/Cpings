@@ -349,6 +349,9 @@ void sender_free(sender_t* sender) {
 
     if (sender->strategy) {
         sender_stop(sender); 
+        if (sender->strategy->free_send_args_func && sender->strategy->send_args) {
+            sender->strategy->free_send_args_func(sender->strategy->send_args);
+        }
         sender->strategy->free_data(sender->strategy->data);
         free(sender->strategy);
         sender->strategy = NULL;

@@ -73,31 +73,37 @@ typedef struct multitask_data_s {
 
 sender_strategy_t* create_strategy_oneshot(
     make_packet_init init_func,
-    packet_free free_func,
+    packet_free free_packet_func,
     make_packet_func make_func,
     void* packet_args, // Args for the make_func
+    free_func free_packet_args_func, // Free func for packet_args
     send_packet_func send_func,
-    void* send_args // Args for the send_func
+    void* send_args, // Args for the send_func
+    free_func free_send_args_func // Free func for send_args
 );
 
 sender_strategy_t* create_strategy_pps(
     make_packet_init init_func,
-    packet_free free_func,
+    packet_free free_packet_func,
     make_packet_func make_func,
     void* packet_args,
+    free_func free_packet_args_func,
     send_packet_func send_func,
     void* send_args,
+    free_func free_send_args_func,
     uint32_t pps,
     size_t high_watermark
 );
 
 sender_strategy_t* create_strategy_burst(
     make_packet_init init_func,
-    packet_free free_func,
+    packet_free free_packet_func,
     make_packet_func make_func,
     void* packet_args,
+    free_func free_packet_args_func,
     send_packet_func send_func,
     void* send_args,
+    free_func free_send_args_func,
     uint64_t delay_ms,
     uint64_t interval_ms
 );
@@ -109,6 +115,7 @@ sender_strategy_t* create_strategy_burst(
 sender_strategy_t* create_strategy_multitask(
     send_packet_func send_func,
     void* send_args,
+    free_func free_send_args_func,
     size_t max_queue_size
 );
 

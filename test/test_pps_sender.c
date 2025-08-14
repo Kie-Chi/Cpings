@@ -2,13 +2,20 @@
 #include "strategy.h"
 #include "dns.h" // For dns_init
 
+static void on_signal(uv_signal_t* handle, int signum) {
+    sender_t* sender = (sender_t*)handle->data;
+    printf("\n[Signal Handler] Caught signal %d. Sending async stop request...\n", signum);
+    uv_async_send(sender->stop_async);    
+    uv_signal_stop(handle);
+}
+
 int main(int argc, char** argv) {
     // --- Test Parameters ---
     char* target_ip = "192.168.3.144";
     uint16_t target_port = 12345;
     uint16_t src_port = 53;
     char* domain_name = "example.com";
-    char* src_ip = "192.168.3.131"; // Spoofed source IP
+    char* src_ip = "192.168.3.148"; // Spoofed source IP
 
     // --- PPS Strategy Parameters ---
     uint32_t pps = 500;              // Target packets per second
@@ -72,6 +79,15 @@ int main(int argc, char** argv) {
     printf("[+] PPS strategy created.\n");
 
     sender_set_strategy(&my_sender, strategy);
+
+    uv_signal_t signal_handle;
+    uv_signal_init(loop, &signal_handle);
+
+    // Link the signal handle to our sender instance. NO GLOBALS!
+    signal_handle.data = &my_sender;
+
+    // Start listening for SIGINT (Ctrl+C)
+    uv_signal_start(&signal_handle, on_signal, SIGINT);
 
     // 5. Start the sender. This will start the PPS timer and trigger the first packet generation.
     printf("[*] Starting sender. PPS timer and producer will now run.\n");

@@ -91,6 +91,7 @@ struct sender_s {
     uv_loop_t* loop;
     
     uv_poll_t* poll_handle;
+    uv_async_t* stop_async;
     int sockfd;
     struct sockaddr_in addr;
 

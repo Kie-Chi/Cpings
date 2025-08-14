@@ -46,12 +46,8 @@ target_include_directories(cpings_core
 #               主要可执行文件 (Main Executables)
 # ==========================================================
 # src
-add_executable(nsmuter src/nsmuter.c)
 add_executable(udpscan src/udpscan.c)
-add_executable(attack_recur src/attack_recur.c)
-add_executable(attack_recur_ns src/attack_recur_ns.c)
-add_executable(attack_forwr src/attack_forwr.c)
-
+add_executable(saddns src/saddns_attack.c)
 
 # test
 add_executable(test_ipfragment test/test_ipfragment.c)
@@ -63,13 +59,13 @@ add_executable(test_burst_sender test/test_burst_sender.c)
 
 # --- 链接所有主要的可执行文件到核心库和线程库 ---
 set(MAIN_TARGETS
-    nsmuter
+    saddns
     udpscan
-    attack_recur
-    attack_recur_ns
-    attack_forwr
     test_ipfragment
     test_build_fake_resp
+    test_sender
+    test_pps_sender
+    test_burst_sender
 )
 
 foreach(TARGET ${MAIN_TARGETS})
@@ -77,44 +73,14 @@ foreach(TARGET ${MAIN_TARGETS})
         PRIVATE
         cpings_core        # 链接我们的核心库
         ${CMAKE_THREAD_LIBS_INIT} # 链接线程库
+        ${LIBUV_LIBRARIES}         # 链接 libuv 库
+    )
+    target_include_directories(${TARGET}
+        PRIVATE
+        ${LIBUV_INCLUDE_DIRS}      # 添加 libuv 的头文件路径
     )
 endforeach()
 
-target_link_libraries(test_sender
-    PRIVATE
-    cpings_core                # 链接核心库 (已包含 sender 和 strategy)
-    ${CMAKE_THREAD_LIBS_INIT}  # 链接线程库
-    ${LIBUV_LIBRARIES}         # 链接 libuv 库
-)
-
-target_include_directories(test_sender
-    PRIVATE
-    ${LIBUV_INCLUDE_DIRS}      # 添加 libuv 的头文件路径
-)
-
-target_link_libraries(test_pps_sender
-    PRIVATE
-    cpings_core                # 链接核心库 (已包含 sender 和 strategy)
-    ${CMAKE_THREAD_LIBS_INIT}  # 链接线程库
-    ${LIBUV_LIBRARIES}         # 链接 libuv 库
-)
-
-target_include_directories(test_pps_sender
-    PRIVATE
-    ${LIBUV_INCLUDE_DIRS}      # 添加 libuv 的头文件路径
-)
-
-target_link_libraries(test_burst_sender
-    PRIVATE
-    cpings_core                # 链接核心库 (已包含 sender 和 strategy)
-    ${CMAKE_THREAD_LIBS_INIT}  # 链接线程库
-    ${LIBUV_LIBRARIES}         # 链接 libuv 库
-)
-
-target_include_directories(test_burst_sender
-    PRIVATE
-    ${LIBUV_INCLUDE_DIRS}      # 添加 libuv 的头文件路径
-)
 
 # ==========================================================
 #                  测试部分

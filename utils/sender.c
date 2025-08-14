@@ -13,6 +13,25 @@ static void free_packet(packet_t* packet) {
     free(packet);
 }
 
+/*
+    Gracefully Stop the UV Loop
+*/
+static void on_stop(uv_async_t* handle) {
+    sender_t* sender = (sender_t*)handle->data;
+
+    printf("\n[Async CB] Graceful shutdown initiated for sender.\n");
+    if (sender->is_running) {
+        sender_stop(sender);
+    }
+    uv_stop(sender->loop);
+}
+
+/*
+    Help Clean the handle
+*/
+static void on_handle_free(uv_handle_t* handle) {
+    free(handle);
+}
 
 ssize_t default_send(sender_t* sender, packet_t* packet, void* send_args) {
     (void)send_args;
@@ -259,6 +278,7 @@ int sender_init(
         return INIT_ERROR;
     }
     
+    // Create Sending Queue
     packet_queue_t* queue = (packet_queue_t*)malloc(sizeof(packet_queue_t));
     if (!queue) {
         close(sender->sockfd);
@@ -268,6 +288,7 @@ int sender_init(
     queue->tail = NULL;
     sender->send_queue = queue;
 
+    // Create Poll Handle Used for Socket
     sender->poll_handle = (uv_poll_t*)malloc(sizeof(uv_poll_t));
     if (!sender->poll_handle) {
         free(queue);
@@ -276,7 +297,23 @@ int sender_init(
     }
     uv_poll_init_socket(loop, sender->poll_handle, sender->sockfd);
     sender->poll_handle->data = sender; // Link back to sender
+    
+    // Create Sockaddr_in 
     uv_ip4_addr(ip, port, &sender->addr);
+
+    // Create Stop Async for Stop
+    sender->stop_async = (uv_async_t*)malloc(sizeof(uv_async_t));
+    if (!sender->stop_async) {
+        free(sender->poll_handle);
+        free(queue);
+        close(sender->sockfd);
+        return INIT_ERROR;
+    }
+    uv_async_init(loop, sender->stop_async, on_stop);
+    sender->stop_async->data = sender;
+    uv_unref((uv_handle_t*)sender->stop_async); // don't care much about the background-handle
+
+    // Set sender Not Running !!!
     sender->is_running = false;
     return 0;
 }
@@ -296,11 +333,13 @@ void sender_free(sender_t* sender) {
     if (uv_is_active((uv_handle_t*)sender->poll_handle)) {
         uv_poll_stop(sender->poll_handle);
     }
-    // Ensure the handle is closed properly
     if (!uv_is_closing((uv_handle_t*)sender->poll_handle)) {
-        uv_close((uv_handle_t*)sender->poll_handle, (uv_close_cb)free);
+        uv_close((uv_handle_t*)sender->poll_handle, on_handle_free);
     }
-
+    // Ensure we close it properly. uv_close is async.
+    if (sender->stop_async && !uv_is_closing((uv_handle_t*)sender->stop_async)) {
+        uv_close((uv_handle_t*)sender->stop_async, on_handle_free);
+    }
     default_free((packet_queue_t*)sender->send_queue);
 
     close(sender->sockfd);
@@ -309,7 +348,16 @@ void sender_free(sender_t* sender) {
 void sender_start(sender_t* sender) {
     if (!sender || !sender->strategy || sender->is_running) {
 #ifdef _DEBUG
-        printf("sender_start: fail to start\n");
+        printf("sender_start: fail to start");
+        if (!sender) {
+            printf(", for no sender\n");
+        }
+        if (!sender->strategy) {
+            printf(", for no strategy\n");
+        }
+        if (sender->is_running) {
+            printf(", for is running\n");
+        }
 #endif
         return;
     }
@@ -320,7 +368,16 @@ void sender_start(sender_t* sender) {
 void sender_stop(sender_t* sender) {
     if (!sender || !sender->strategy || !sender->is_running) {
 #ifdef _DEBUG
-        printf("sender_stop: fail to stop\n");
+        printf("sender_stop: fail to stop");
+        if (!sender) {
+            printf(", for no sender\n");
+        }
+        if (!sender->strategy) {
+            printf(", for no strategy\n");
+        }
+        if (!sender->is_running) {
+            printf(", for not running\n");
+        }
 #endif
         return;
     }

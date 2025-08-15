@@ -79,7 +79,7 @@ bool default_make(packet_queue_t* queue, void* args) {
     answer[0] = new_dns_answer_a(d_args->domain_name, inet_addr("8.8.8.8"), 3600);
 
     uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
-    size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, NULL, 0, FALSE);
+    size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, NULL, 0, NULL, 0, FALSE);
 
     uint8_t* packet_template = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
     size_t packet_raw_len = make_udp_packet(packet_template, DNS_PKT_MAX_LEN,
@@ -518,7 +518,7 @@ bool pps_make(packet_queue_t* queue, void* args) {
     answer[0] = new_dns_answer_a(d_args->domain_name, inet_addr("8.8.8.8"), 3600);
 
     uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
-    size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, NULL, 0, FALSE);
+    size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, NULL, 0, NULL, 0, FALSE);
 
     uint8_t* packet_template = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
     size_t packet_raw_len = make_udp_packet(packet_template, DNS_PKT_MAX_LEN,

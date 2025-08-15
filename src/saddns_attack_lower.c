@@ -36,7 +36,7 @@ static void spoof_dns_resp(int sockfd, char* src_ip, char* dst_ip, uint16_t dst_
 
     // Make DNS packet.
     uint8_t* packet = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
-    size_t packet_len = make_dns_packet(packet, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, authori, 1, TRUE);
+    size_t packet_len = make_dns_packet(packet, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, authori, 1, NULL, 0, TRUE);
 
     // Make UDP packet.
     uint8_t* packet_raw = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);

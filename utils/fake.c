@@ -70,7 +70,7 @@ size_t _build_std_resp(
     );
 
 
-    dns_payload_len = make_dns_packet(packet, packet_len, TRUE, 0, query, 1, answers, answer_count, NULL, 0, FALSE);
+    dns_payload_len = make_dns_packet(packet, packet_len, TRUE, 0, query, 1, answers, answer_count, NULL, 0, NULL, 0, FALSE);
     
     if (dns_payload_len > 0) {
         set_dns_flags(packet, dns_payload_len,
@@ -160,7 +160,7 @@ size_t _build_origin_fake_resp(
     answers[length - 1] = answer;
 
 
-    dns_payload_len = make_dns_packet(packet, packet_len, TRUE, 0, query, 1, answers, answer_count, NULL, 0, FALSE);
+    dns_payload_len = make_dns_packet(packet, packet_len, TRUE, 0, query, 1, answers, answer_count, NULL, 0, NULL, 0, FALSE);
     
     if (dns_payload_len > 0) {
         set_dns_flags(packet, dns_payload_len,

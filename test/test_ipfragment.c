@@ -66,7 +66,7 @@ static void send_long_cname_chain_response(int sockfd, char *src_ip, char *dst_i
 
     // is_resp=TRUE, tx_id=random_txid, query_count=1, answer_count=56, authori_count=0, edns0=FALSE
     size_t dns_payload_len = make_dns_packet(dns_payload, LARGE_DNS_PKT_MAX_LEN, TRUE, random_txid,
-                                             query, 1, answers, CNAME_CHAIN_LENGTH + 1, NULL, 0, FALSE);
+                                             query, 1, answers, CNAME_CHAIN_LENGTH + 1, NULL, 0, NULL, 0, FALSE);
 
     if (dns_payload_len == (size_t)-1 || dns_payload_len == 0)
     {

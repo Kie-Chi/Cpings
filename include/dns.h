@@ -124,9 +124,12 @@ uint16_t get_tx_id();
 
 int parse_dns_req_domain(char* outbuf, size_t outbuf_len, struct dnshdr* dnsh, size_t dnspkt_len);
 
-size_t make_dns_packet(uint8_t* buff, size_t buff_len, int is_resp, uint16_t tx_id,
-        struct dns_query* queries[], uint16_t query_count, struct dns_answer* answers[], uint16_t answer_count,
-        struct dns_answer* authories[], uint16_t authori_count, int edns0);
+size_t make_dns_packet(uint8_t *buff, size_t buff_len, int is_resp, uint16_t tx_id,
+                       struct dns_query *queries[], uint16_t query_count,
+                       struct dns_answer *answers[], uint16_t answer_count,
+                       struct dns_answer *authories[], uint16_t authori_count,
+                       struct dns_answer *additionals[], uint16_t additional_count, // <--- 新增参数
+                       int edns0);
 
 void send_dns_req(int sockfd, char* dst_ip, uint16_t dst_port, struct dns_query* queries[],
         size_t query_count);

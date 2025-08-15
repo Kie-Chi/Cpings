@@ -270,13 +270,13 @@ void set_dns_flags(
 
 /* Make a UDP payload of DNS. */
 size_t make_dns_packet(uint8_t* buff, size_t buff_len, int is_resp, uint16_t tx_id,
-        struct dns_query* queries[], uint16_t query_count, struct dns_answer* answers[], uint16_t answer_count,
-        struct dns_answer* authories[], uint16_t authori_count, int edns0) {
+        struct dns_query* queries[], uint16_t query_count, 
+        struct dns_answer* answers[], uint16_t answer_count,
+        struct dns_answer* authories[], uint16_t authori_count, 
+        struct dns_answer* additionals[], uint16_t additional_count,
+        int edns0) {
     // Check memory.
     if (buff_len < sizeof(struct dnshdr)) {
-#ifdef _DEBUG
-        printf("make_dns_packet: buff_len is not enough.\n");
-#endif
         abort();
     }
     
@@ -285,7 +285,7 @@ size_t make_dns_packet(uint8_t* buff, size_t buff_len, int is_resp, uint16_t tx_
     dnsh->id = htons(tx_id);
     if (is_resp) {
         if (authori_count != 0)
-            dnsh->flags = htons(0x8410); // Authoritive Response.
+            dnsh->flags = htons(0x8400); // Authoritive Response.
         else
             dnsh->flags = htons(0x8180); // Normal Response.
     } else
@@ -293,19 +293,16 @@ size_t make_dns_packet(uint8_t* buff, size_t buff_len, int is_resp, uint16_t tx_
     dnsh->qdcount = htons(query_count);
     dnsh->ancount = htons(answer_count);
     dnsh->nscount = htons(authori_count);
+    // arcount 将在后面根据情况设置
+    dnsh->arcount = 0;
     int i;
 
     // Queries.
     uint8_t* tmp_ptr = buff + sizeof(struct dnshdr);
     for (i = 0; i < query_count; i++) {
-        // Memory check.
         if (tmp_ptr + queries[i]->query_name_len + sizeof(struct q_info) > buff + buff_len) {
-#ifdef _DEBUG
-            printf("make_dns_packet: Length of buff is not enough.\n");
-#endif
             abort();
         }
-
         memcpy(tmp_ptr, queries[i]->query_name, queries[i]->query_name_len);
         memcpy(tmp_ptr + queries[i]->query_name_len, &queries[i]->query_info, sizeof(struct q_info));
         tmp_ptr += queries[i]->query_name_len + sizeof(struct q_info);
@@ -313,14 +310,9 @@ size_t make_dns_packet(uint8_t* buff, size_t buff_len, int is_resp, uint16_t tx_
 
     // Answers.
     for (i = 0; i < answer_count; i++) {
-        // Memory check.
         if (tmp_ptr + answers[i]->res_name_len + sizeof(struct r_info) + ntohs(answers[i]->res_info.len) > buff + buff_len) {
-#ifdef _DEBUG
-            printf("make_dns_packet: Length of buff is not enough.\n");
-#endif
             abort();
         }
-
         memcpy(tmp_ptr, answers[i]->res_name, answers[i]->res_name_len);
         memcpy(tmp_ptr + answers[i]->res_name_len, &answers[i]->res_info, sizeof(struct r_info) + ntohs(answers[i]->res_info.len));
         tmp_ptr += answers[i]->res_name_len + sizeof(struct r_info) + ntohs(answers[i]->res_info.len);
@@ -328,34 +320,45 @@ size_t make_dns_packet(uint8_t* buff, size_t buff_len, int is_resp, uint16_t tx_
 
     // Autoritives.
     for (i = 0; i < authori_count; i++) {
-        // Memory check.
         if (tmp_ptr + authories[i]->res_name_len + sizeof(struct r_info) + ntohs(authories[i]->res_info.len) > buff + buff_len) {
-#ifdef _DEBUG
-            printf("make_dns_packet: Length of buff is not enough.\n");
-#endif
             abort();
         }
-
         memcpy(tmp_ptr, authories[i]->res_name, authories[i]->res_name_len);
         memcpy(tmp_ptr + authories[i]->res_name_len, &authories[i]->res_info, sizeof(struct r_info) + ntohs(authories[i]->res_info.len));
         tmp_ptr += authories[i]->res_name_len + sizeof(struct r_info) + ntohs(authories[i]->res_info.len);
     }
 
-    // Addtional.
+    // Additional
+    for (i = 0; i < additional_count; i++) {
+        if (tmp_ptr + additionals[i]->res_name_len + sizeof(struct r_info) + ntohs(additionals[i]->res_info.len) > buff + buff_len) {
+            abort();
+        }
+        memcpy(tmp_ptr, additionals[i]->res_name, additionals[i]->res_name_len);
+        memcpy(tmp_ptr + additionals[i]->res_name_len, &additionals[i]->res_info, sizeof(struct r_info) + ntohs(additionals[i]->res_info.len));
+        tmp_ptr += additionals[i]->res_name_len + sizeof(struct r_info) + ntohs(additionals[i]->res_info.len);
+    }
+    
+    uint16_t final_arcount = additional_count;
     if (edns0) {
-        dnsh->arcount = htons(1);
+        final_arcount++;
+        if (tmp_ptr + 11 > buff + buff_len) {
+            abort();
+        }
         memcpy(tmp_ptr, "\x00\x00\x29\x10\x00\x00\x00\x80\x00\x00\x00", 11);
         tmp_ptr += 11;
     }
+    
+    dnsh->arcount = htons(final_arcount);
 
     return tmp_ptr - buff;
 }
+
 
 /* Send a normal DNS request. */
 void send_dns_req(int sockfd, char* dst_ip, uint16_t dst_port, struct dns_query* queries[],
         size_t query_count) {
     uint8_t* packet = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
-    size_t packet_len = make_dns_packet(packet, DNS_PKT_MAX_LEN, FALSE, get_tx_id(), queries, query_count, NULL, 0, NULL, 0, FALSE);
+    size_t packet_len = make_dns_packet(packet, DNS_PKT_MAX_LEN, FALSE, get_tx_id(), queries, query_count, NULL, 0, NULL, 0, NULL, 0, FALSE);
     
     struct sockaddr_in dest_addr = {
         .sin_family = AF_INET,
@@ -381,7 +384,7 @@ static void send_dns_resp_spoof(int sockfd, char* src_ip, char* dst_ip, uint16_t
         struct dns_answer* answers[], size_t answer_count) {
     uint8_t* packet = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
     size_t packet_len = make_dns_packet(packet, DNS_PKT_MAX_LEN, TRUE, tx_id, query,
-                                        query_count, answers, answer_count, NULL, 0, FALSE);
+                                        query_count, answers, answer_count, NULL, 0, NULL, 0, FALSE);
 
     // Make UDP RAW packet.
     uint8_t* packet_raw = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);

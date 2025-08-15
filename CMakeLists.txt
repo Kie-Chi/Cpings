@@ -49,6 +49,7 @@ target_include_directories(cpings_core
 add_executable(udpscan src/udpscan.c)
 add_executable(saddns src/saddns_attack.c)
 add_executable(saddns_l src/saddns_attack_lower.c)
+add_executable(kaminsky src/kaminsky_attack.c)
 
 # test
 add_executable(test_ipfragment test/test_ipfragment.c)
@@ -66,6 +67,7 @@ set(MAIN_TARGETS
     saddns
     saddns_l
     udpscan
+    kaminsky
     test_ipfragment
     test_build_fake_resp
     test_sender

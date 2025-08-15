@@ -139,11 +139,7 @@ bool make_saddns_spoof_chunk(packet_queue_t* queue, void* args) {
 
 static void spoof_callback_burst(uint16_t port) {
     printf("[Scanner CB] Open port found: %u. Launching chunked burst attack...\n", port);
-
-    // 停止并清理之前的策略（如果存在）
     if (g_sender->strategy) {
-        // sender_set_strategy 会负责释放旧策略及其 packet_args
-        // 我们需要一个自定义的 free 函数来处理嵌套的内存
         chunked_make_args_t* old_args = (chunked_make_args_t*)g_sender->strategy->data;
         free_chunked_make_args(old_args);
         sender_set_strategy(g_sender, NULL); 

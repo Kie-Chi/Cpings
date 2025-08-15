@@ -95,7 +95,6 @@ struct sender_s {
     uv_loop_t* loop;
     
     uv_poll_t* poll_handle;
-    uv_async_t* stop_async;
     int sockfd;
     struct sockaddr_in addr;
 
@@ -104,6 +103,7 @@ struct sender_s {
 
     volatile bool is_running;
 
+    uv_async_t *stop_async;
     uv_timer_t* stop_timer;
     stop_func stop_func;
     void* state;

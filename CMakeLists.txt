@@ -32,6 +32,7 @@ add_library(cpings_core STATIC
     utils/util.c
     utils/network.c
     utils/dns.c
+    utils/parser.c
     utils/scanner.c
     utils/fake.c
     utils/sender.c
@@ -50,6 +51,7 @@ add_executable(udpscan src/udpscan.c)
 add_executable(saddns src/saddns_attack.c)
 add_executable(saddns_l src/saddns_attack_lower.c)
 add_executable(kaminsky src/kaminsky_attack.c)
+add_executable(listener src/listener.c)
 
 # test
 add_executable(test_ipfragment test/test_ipfragment.c)
@@ -68,6 +70,7 @@ set(MAIN_TARGETS
     saddns_l
     udpscan
     kaminsky
+    listener
     test_ipfragment
     test_build_fake_resp
     test_sender

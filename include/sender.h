@@ -29,6 +29,7 @@ struct packet_s {
     uint8_t* data;
     size_t size;
     size_t capacity;
+    struct sockaddr_in dest_addr; // NULL for use sender default sockaddr
     packet_t* next;
     // Options...
 };
@@ -96,7 +97,7 @@ struct sender_s {
     
     uv_poll_t* poll_handle;
     int sockfd;
-    struct sockaddr_in addr;
+    struct sockaddr_in addr; // will not be used if packet has addr
 
     sender_strategy_t* strategy;
     packet_queue_t* send_queue;

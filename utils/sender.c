@@ -55,8 +55,18 @@ ssize_t default_send(sender_t* sender, packet_t* packet, void* send_args) {
     if (!sender || !packet || !packet->data || packet->size == 0) {
         return BROKEN_ERROR;
     }
+    struct sockaddr_in* send_addr;
+    if (packet->dest_addr.sin_family != 0) {
+        send_addr = &packet->dest_addr;
+    } else if (sender->addr.sin_family != 0) {
+        send_addr = &sender->addr;
+    } else {
+        fprintf(stderr, "No valid destination address found for sending packet.\n");
+        return BROKEN_ERROR;
+    }
+
     ssize_t sent = sendto(sender->sockfd, packet->data, packet->size, 0,
-                          (struct sockaddr*)&sender->addr, sizeof(sender->addr));
+                          (struct sockaddr*)send_addr, sizeof(*send_addr));
     if (sent < 0) {
         perror("sendto");
         return -1; // Error

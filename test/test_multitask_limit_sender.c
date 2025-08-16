@@ -34,7 +34,7 @@ void* worker_thread_func(void* arg) {
         char domain_buf[32];
         snprintf(domain_buf, sizeof(domain_buf), "task-%d-from-worker-%d.com", i, tid);
         
-        task->default_args.src_ip = _strdup("192.168.3.135");
+        task->default_args.src_ip = _strdup("192.168.3.148");
         task->default_args.dst_ip = _strdup("192.168.3.144");
         task->default_args.domain_name = _strdup(domain_buf);
         task->default_args.src_port = 53;

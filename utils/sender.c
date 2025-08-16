@@ -50,6 +50,18 @@ static void sender_check_stop(uv_timer_t* timer) {
     }
 }
 
+void free_batch_queue(sender_queue_t* queue) {
+    if (!queue) return;
+    packet_batch_t* current = queue->head;
+    while (current) {
+        packet_batch_t* next = current->next;
+        arena_free(&current->arena); // Free the arena associated with the batch
+        free(current); // Free the batch container itself
+        current = next;
+    }
+    free(queue);
+}
+
 ssize_t default_send(sender_t* sender, packet_t* packet, void* send_args) {
     (void)send_args;
     if (!sender || !packet || !packet->data || packet->size == 0) {
@@ -75,8 +87,8 @@ ssize_t default_send(sender_t* sender, packet_t* packet, void* send_args) {
 }
 
 
-bool default_make(packet_queue_t* queue, void* args) {
-    if (!queue || !args) return false;
+bool default_make(Arena* arena, packet_queue_t* queue, void* args) {
+    if (!arena || !queue || !args) return false;
 
     default_make_args_t* d_args = (default_make_args_t*)args;
     printf("Building 65536 packets for %s -> %s (query: %s)\n", d_args->src_ip, d_args->dst_ip, d_args->domain_name);
@@ -91,7 +103,7 @@ bool default_make(packet_queue_t* queue, void* args) {
     uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
     size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, NULL, 0, NULL, 0, FALSE);
 
-    uint8_t* packet_template = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    uint8_t* packet_template = (uint8_t*)arena_alloc(arena, DNS_PKT_MAX_LEN);
     size_t packet_raw_len = make_udp_packet(packet_template, DNS_PKT_MAX_LEN,
                                             inet_addr(d_args->src_ip), inet_addr(d_args->dst_ip),
                                             d_args->src_port, // Source port for DNS response
@@ -105,8 +117,8 @@ bool default_make(packet_queue_t* queue, void* args) {
     // 3. Loop 65536 times, create a packet for each TXID, and add to the queue.
     for (uint32_t i = 0; i <= UINT16_MAX; i++) {
         // Create a new packet container
-        packet_t* new_pkt = (packet_t*)alloc_memory(sizeof(packet_t));
-        new_pkt->data = (uint8_t*)alloc_memory(packet_raw_len);
+        packet_t* new_pkt = (packet_t*)arena_alloc(arena, sizeof(packet_t));
+        new_pkt->data = (uint8_t*)arena_alloc(arena, packet_raw_len);
         new_pkt->size = packet_raw_len;
         new_pkt->next = NULL;
 
@@ -124,33 +136,9 @@ bool default_make(packet_queue_t* queue, void* args) {
             queue->tail = new_pkt;
         }
     }
-    free(packet_template);
     return true;
 }
 
-void default_free(packet_queue_t* queue) {
-    if (!queue) return;
-    packet_t* current = queue->head;
-    while (current) {
-        packet_t* next = current->next;
-        free_packet(current);
-        current = next;
-    }
-    queue->head = NULL;
-    queue->tail = NULL;
-    free(queue);
-}
-
-bool default_init(packet_queue_t** queue_ptr) {
-    if (!queue_ptr) return false;
-    if (!(*queue_ptr)) {
-        *queue_ptr = (packet_queue_t*)malloc(sizeof(packet_queue_t));
-        if (!(*queue_ptr)) return false;
-        (*queue_ptr)->head = NULL;
-        (*queue_ptr)->tail = NULL;
-    }
-    return true;
-}
 
 void default_build_work_cb(uv_work_t* req) {
     packet_work_t* work = (packet_work_t*)req;
@@ -159,24 +147,26 @@ void default_build_work_cb(uv_work_t* req) {
     // Get the strategy data which holds the function pointers
     default_strategy_data_t* s_data = (default_strategy_data_t*)sender->strategy->data;
 
-    if (!s_data->free_func || !s_data->init_func || !s_data->make_func) {
+    if (!s_data->make_func) {
         fprintf(stderr, "Missing necessary function pointers in strategy data.\n");
         work->error_code = BROKEN_ERROR;
         return;
     }
 
-    if (!s_data->init_func(&work->queue)) {
-        fprintf(stderr, "Failed to initialize packet queue.\n");
+    work->batch = (packet_batch_t*)alloc_memory(sizeof(packet_batch_t));
+    if (!work->batch) {
+        fprintf(stderr, "Failed to allocate memory for packet batch.\n");
         work->error_code = INIT_ERROR;
         return;
     }
     
     // Use the functions and args from the strategy data
-    if (!s_data->make_func(work->queue, s_data->packet_args)) {
+    if (!s_data->make_func(&work->batch->arena, &(work->batch->packets), s_data->packet_args)) {
         fprintf(stderr, "Failed to make packet.\n");
         work->error_code = MAKE_ERROR;
-        s_data->free_func(work->queue); // Clean up the failed attempt
-        work->queue = NULL; // Ensure queue is NULL on error
+        arena_free(&work->batch->arena);
+        free(work->batch);
+        work->batch = NULL;
         return;
     }
     work->error_code = NOERROR;
@@ -189,9 +179,10 @@ void default_after_work_cb(uv_work_t* req, int status) {
 
     if (status == UV_ECANCELED) {
         fprintf(stderr, "Work request was cancelled.\n");
-        if (work->queue) {
+        if (work->batch) {
             // Get the free function from the strategy to clean up
-            s_data->free_func(work->queue);
+            arena_free(&work->batch->arena);
+            free(work->batch);
         }
         free(work);
         return;
@@ -205,11 +196,10 @@ void default_after_work_cb(uv_work_t* req, int status) {
         return;
     }
 
-    if (work->queue) {
-        sender_add_to_queue(work->sender_handle, work->queue);
+    if (work->batch && work->batch->packets.head) {
+        sender_add_batch_to_queue(work->sender_handle, work->batch);
         // The sender_add_to_queue now owns the packets. We just free the container.
-        free(work->queue); 
-    } else {
+    } else if (work->batch) {
         #ifdef _DEBUG
         printf("default_after_work_cb: no packets were generated to send.\n");
         #endif
@@ -218,33 +208,46 @@ void default_after_work_cb(uv_work_t* req, int status) {
     free(work);
 }
 
-void sender_add_to_queue(sender_t* sender, packet_queue_t* packet_queue) {
-    if (!packet_queue || !packet_queue->head) {
+void sender_add_batch_to_queue(sender_t* sender, packet_batch_t* batch) {
+    if (!sender || !batch || !batch->packets.head) {
+#ifdef _DEBUG
+        printf("sender_ab_to_queue: can't add batch");
+        if (!sender) {
+            printf(", for no sender\n");
+        }
+        if (!batch) {
+            printf(", for no batch\n");
+        }
+        if (!batch->packets.head) {
+            printf(", for no packets in batch\n");
+        }
+#endif
+        if (batch) {
+            arena_free(&batch->arena);
+            free(batch);
+        }
         return;
     }
-    packet_queue_t* queue = (packet_queue_t*)sender->send_queue;
-    
-    // Find the tail of the new batch
-    packet_t* batch_tail = packet_queue->tail;
-
+    sender_queue_t* queue = sender->send_queue;
+    batch->next = NULL;
     if (queue->tail) {
-        queue->tail->next = packet_queue->head;
+        queue->tail->next = batch;
+        queue->tail = batch;
     } else {
-        // Queue is empty, this batch is the new head
-        queue->head = packet_queue->head;
+        queue->head = batch;
+        queue->tail = batch;
     }
-    // The tail of the queue is now the tail of the new batch
-    queue->tail = batch_tail;
-
-    // Start polling for writability if not already doing so
-    if (sender->is_running && !(uv_is_active((uv_handle_t*)sender->poll_handle))) {
+    if (sender->is_running && !uv_is_active((uv_handle_t*)sender->poll_handle)) {
+#ifdef _DEBUG
+        printf("[Sender] New batch added to idle queue. Activating poll handle.\n");
+#endif
         uv_poll_start(sender->poll_handle, UV_WRITABLE, sender_poll_cb);
     }
 }
 
 void sender_poll_cb(uv_poll_t* handle, int status, int events) {
     sender_t* sender = (sender_t*)handle->data;
-    packet_queue_t* queue = (packet_queue_t*)sender->send_queue;
+    sender_queue_t* queue = sender->send_queue;
 
     if (status < 0) {
         fprintf(stderr, "Poll error: %s\n", uv_strerror(status));
@@ -252,29 +255,38 @@ void sender_poll_cb(uv_poll_t* handle, int status, int events) {
     }
 
     if (events & UV_WRITABLE) {
-        while (queue->head) {
-            packet_t* packet = queue->head;
-            ssize_t sent = sender->strategy->send_func(sender, packet, sender->strategy->send_args);
-            if (sent < 0) {
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    break;
-                } else {
-#ifdef _DEBUG
-                    printf("sender_poll_cb: unexpected error: %d\n", errno);
-#endif
-                    perror("sendto");
+        while (true) {
+            if (sender->current_batch == NULL) {
+                if (queue->head == NULL) {
+                    uv_poll_stop(sender->poll_handle);
+                    return;
+                }
+                sender->current_batch = queue->head;
+                sender->current_packet = sender->current_batch->packets.head;
+                queue->head = queue->head->next;
+                if (queue->head == NULL) {
+                    queue->tail = NULL;
                 }
             }
-            
-            queue->head = packet->next;
-            if (queue->head == NULL) {
-                queue->tail = NULL;
+            if (sender->current_packet == NULL) {
+#ifdef _DEBUG
+                printf("[Sender] Batch finished. Freeing its arena.\n");
+#endif
+                arena_free(&sender->current_batch->arena);
+                free(sender->current_batch);
+                sender->current_batch = NULL;
+                continue; // 继续循环，会从队列取下一个批次
             }
-            packet->next = NULL; // Decouple from chain before freeing
-            free_packet(packet);
-        }
-        if (queue->head == NULL) {
-            uv_poll_stop(sender->poll_handle);
+            ssize_t sent = sender->strategy->send_func(sender, sender->current_packet, sender->strategy->send_args);
+
+            if (sent < 0) {
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    return;
+                } else {
+                    perror("sendto in poll_cb");
+                }
+            }
+            sender->current_packet = sender->current_packet->next;
         }
     }
 }
@@ -307,7 +319,7 @@ int sender_init(
     }
     
     // Create Sending Queue
-    packet_queue_t* queue = (packet_queue_t*)malloc(sizeof(packet_queue_t));
+    sender_queue_t* queue = (sender_queue_t*)alloc_memory(sizeof(sender_queue_t));
     if (!queue) {
         close(sender->sockfd);
         return INIT_ERROR;
@@ -317,7 +329,7 @@ int sender_init(
     sender->send_queue = queue;
 
     // Create Poll Handle Used for Socket
-    sender->poll_handle = (uv_poll_t*)malloc(sizeof(uv_poll_t));
+    sender->poll_handle = (uv_poll_t*)alloc_memory(sizeof(uv_poll_t));
     if (!sender->poll_handle) {
         free(queue);
         close(sender->sockfd);
@@ -330,7 +342,7 @@ int sender_init(
     uv_ip4_addr(ip, port, &sender->addr);
 
     // Create Stop Async for Stop
-    sender->stop_async = (uv_async_t*)malloc(sizeof(uv_async_t));
+    sender->stop_async = (uv_async_t*)alloc_memory(sizeof(uv_async_t));
     if (!sender->stop_async) {
         free(sender->poll_handle);
         free(queue);
@@ -367,6 +379,15 @@ void sender_free(sender_t* sender) {
         sender->strategy = NULL;
     }
 
+    // Free queue
+    free_batch_queue(sender->send_queue);
+    sender->send_queue = NULL;
+    if (sender->current_batch) {
+        arena_free(&sender->current_batch->arena);
+        free(sender->current_batch);
+        sender->current_batch = NULL;
+    }
+
     // Stop timer
     if (sender->stop_timer) {
         if (uv_is_active((uv_handle_t*)sender->stop_timer)) {
@@ -396,8 +417,7 @@ void sender_free(sender_t* sender) {
     if (sender->stop_async && !uv_is_closing((uv_handle_t*)sender->stop_async)) {
         uv_close((uv_handle_t*)sender->stop_async, on_handle_free);
     }
-    default_free((packet_queue_t*)sender->send_queue);
-
+    // Free the poll handle
     close(sender->sockfd);
 }
 
@@ -488,7 +508,7 @@ int sender_set_stop_cond(
     }
 
     // Re-alloc for stop timer
-    sender->stop_timer = (uv_timer_t*)malloc(sizeof(uv_timer_t));
+    sender->stop_timer = (uv_timer_t*)alloc_memory(sizeof(uv_timer_t));
     if (!sender->stop_timer) {
         return INIT_ERROR;
     }
@@ -515,7 +535,7 @@ int sender_set_stop_cond(
     More Specified Functions
 */
 
-bool pps_make(packet_queue_t* queue, void* args) {
+bool pps_make(Arena* arena, packet_queue_t* queue, void* args) {
     if (!queue || !args) return false;
 
     default_make_args_t* d_args = (default_make_args_t*)args;
@@ -530,7 +550,7 @@ bool pps_make(packet_queue_t* queue, void* args) {
     uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
     size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, NULL, 0, NULL, 0, FALSE);
 
-    uint8_t* packet_template = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    uint8_t* packet_template = (uint8_t*)arena_alloc(arena, DNS_PKT_MAX_LEN);
     size_t packet_raw_len = make_udp_packet(packet_template, DNS_PKT_MAX_LEN,
                                             inet_addr(d_args->src_ip), inet_addr(d_args->dst_ip),
                                             d_args->src_port,
@@ -542,8 +562,9 @@ bool pps_make(packet_queue_t* queue, void* args) {
 
     // 2. Loop `packets_to_generate` times, using the shared counter for TXID.
     for (size_t i = 0; i < ((pps_make_args_t*)d_args)->count; i++) {
-        packet_t* new_pkt = (packet_t*)alloc_memory(sizeof(packet_t));
-        new_pkt->data = (uint8_t*)alloc_memory(packet_raw_len);
+        packet_t* new_pkt = (packet_t*)arena_alloc(arena, sizeof(packet_t));
+        new_pkt->data = (uint8_t*)arena_alloc(arena, packet_raw_len);
+        memset(&new_pkt->dest_addr, 0, sizeof(new_pkt->dest_addr));
         new_pkt->size = packet_raw_len;
         new_pkt->next = NULL;
 
@@ -560,8 +581,6 @@ bool pps_make(packet_queue_t* queue, void* args) {
             queue->tail->next = new_pkt;
             queue->tail = new_pkt;
         }
-    }
-    
-    free(packet_template);
+    }    
     return true;
 }

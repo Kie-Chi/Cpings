@@ -12,7 +12,7 @@ int main(int argc, char** argv) {
     uint16_t target_port = 12345;
     uint16_t src_port = 53;
     char* domain_name = "example-burst.com";
-    char* src_ip = "192.168.3.131"; // Spoofed source IP
+    char* src_ip = "192.168.3.148"; // Spoofed source IP
 
     uint64_t delay_ms = BURST_DELAY_S * 1000;
     uint64_t interval_ms = BURST_INTERVAL_S * 1000; 
@@ -54,8 +54,6 @@ int main(int argc, char** argv) {
 
     // 4. Create the "burst" strategy.
     sender_strategy_t* strategy = create_strategy_burst(
-        default_init,
-        default_free,
         pps_make,   // <<< Use the burst-aware make function
         &packet_args,     // <<< Pass the pps_make_args_t struct
         NULL,

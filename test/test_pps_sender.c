@@ -19,7 +19,7 @@ int main(int argc, char** argv) {
 
     // --- PPS Strategy Parameters ---
     uint32_t pps = 500;              // Target packets per second
-    size_t high_watermark = 200;     // Refill buffer when it drops below this
+    size_t high_watermark = 50;     // Refill buffer when it drops below this
     size_t packets_per_burst = 500;  // How many packets to generate in each background task
 
     printf("[*] PPS Test Configuration:\n");
@@ -61,8 +61,6 @@ int main(int argc, char** argv) {
 
     // 4. Create the "pps" strategy, passing in our new burst make function
     sender_strategy_t* strategy = create_strategy_pps(
-        default_init,        // Use default queue init
-        default_free,        // Use default queue free
         pps_make,      // Our new function to generate N packets
         &packet_args,        // Arguments for our new make function
         NULL,
@@ -70,7 +68,8 @@ int main(int argc, char** argv) {
         NULL,                // No special send arguments
         NULL,
         pps,                 // The desired packets-per-second rate
-        high_watermark       // The buffer's high watermark
+        high_watermark,       // The buffer's high watermark
+        4
     );
 
     if (!strategy) {

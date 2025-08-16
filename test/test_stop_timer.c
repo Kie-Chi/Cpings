@@ -67,8 +67,6 @@ int main(int argc, char **argv) {
 
     // 4. 创建 PPS 策略
     sender_strategy_t* pps_strategy = create_strategy_pps(
-        default_init,
-        default_free,
         pps_make,
         &make_args,
         NULL,
@@ -76,7 +74,8 @@ int main(int argc, char **argv) {
         NULL,
         NULL,
         100,      // 发送速率: 100 pps
-        500      // 缓冲区高水位线
+        10,      // 缓冲区高水位线
+        4       // 最大并发批次
     );
     if (!pps_strategy) {
         fprintf(stderr, "Failed to create PPS strategy\n");

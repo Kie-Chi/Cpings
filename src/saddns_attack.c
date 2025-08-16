@@ -167,8 +167,6 @@ static void spoof_callback_burst(uint16_t port) {
 
     // 4. 创建 burst 策略，配置为周期性地调用我们的分块函数
     sender_strategy_t* strategy = create_strategy_burst(
-        default_init,
-        default_free,
         make_saddns_spoof_chunk, // 使用分块生成函数
         make_args,               // 传递包含状态的参数
         NULL,

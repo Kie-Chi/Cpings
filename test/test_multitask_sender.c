@@ -47,7 +47,7 @@ static void task_submit_timer_cb(uv_timer_t* handle) {
     args->default_args.domain_name = _strdup(domain_buf);
     args->default_args.src_port = 53;
     args->default_args.dst_port = 10000 + rand() % 10000;
-    args->count = 500 + rand() % 1500; // Generate a random number of packets (500-2000)
+    args->count = 100; // Generate a random number of packets (500-2000)
 
     printf("[Timer] Preparing to submit a new task:\n"
            "        Source: %s:%u\n"

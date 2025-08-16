@@ -29,6 +29,7 @@ pkg_check_modules(LIBUV REQUIRED libuv)
 #                  核心库 (Core Library)
 # ==========================================================
 add_library(cpings_core STATIC
+    utils/arena.c
     utils/util.c
     utils/network.c
     utils/dns.c

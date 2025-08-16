@@ -13,14 +13,14 @@ typedef struct {
 typedef struct pps_data_s {
     default_strategy_data_t default_data;
 
-    // PPS-specific fields
     uv_timer_t pps_timer;
     uint32_t pps;
-    size_t high_watermark;
+    size_t high_watermark; // Now represents a watermark of BATCHES, not packets.
+    size_t max_concurrent_batches; // Maximum number of batches that can be processed concurrently;
 
-    packet_queue_t* private_queue;
-    volatile size_t private_queue_size;
-    volatile bool producing;
+    sender_queue_t* private_batch_queue;
+    volatile size_t private_queue_size; // Number of batches in the queue.
+    volatile size_t active_batches; // Number of batches currently being processed.
 
     pthread_mutex_t buffer_mutex;
 
@@ -72,8 +72,6 @@ typedef struct multitask_data_s {
 */
 
 sender_strategy_t* create_strategy_oneshot(
-    make_packet_init init_func,
-    packet_free free_packet_func,
     make_packet_func make_func,
     void* packet_args, // Args for the make_func
     free_func free_packet_args_func, // Free func for packet_args
@@ -83,8 +81,6 @@ sender_strategy_t* create_strategy_oneshot(
 );
 
 sender_strategy_t* create_strategy_pps(
-    make_packet_init init_func,
-    packet_free free_packet_func,
     make_packet_func make_func,
     void* packet_args,
     free_func free_packet_args_func,
@@ -92,12 +88,11 @@ sender_strategy_t* create_strategy_pps(
     void* send_args,
     free_func free_send_args_func,
     uint32_t pps,
-    size_t high_watermark
+    size_t high_watermark,
+    size_t max_concurrent_batches
 );
 
 sender_strategy_t* create_strategy_burst(
-    make_packet_init init_func,
-    packet_free free_packet_func,
     make_packet_func make_func,
     void* packet_args,
     free_func free_packet_args_func,

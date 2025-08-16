@@ -5,6 +5,7 @@
 #include "common.h"
 #include "dns.h"
 #include "network.h"
+#include "arena.h"
 
 /*
     Structures to hold parsed packet data
@@ -83,18 +84,14 @@ bool unpack_udp_packet(const uint8_t *ip_payload, size_t ip_payload_len, parsed_
  * @brief Parses a UDP payload to extract all components of a DNS message.
  *        This function allocates memory for the linked lists, which must be freed
  *        by calling free_parsed_dns_packet().
+ * @param arena Pointer to the memory arena to use for allocations.
  * @param udp_payload Pointer to the start of the UDP payload (where the DNS header should be).
  * @param udp_payload_len Length of the UDP payload.
  * @param out_dns Pointer to a structure to be filled with parsed DNS data.
  * @return True on successful parsing, false otherwise.
  */
-bool unpack_dns_packet(const uint8_t *udp_payload, size_t udp_payload_len, parsed_dns_packet_t *out_dns);
+bool unpack_dns_packet(Arena* arena, const uint8_t *udp_payload, size_t udp_payload_len, parsed_dns_packet_t *out_dns);
 
-/**
- * @brief Frees all dynamically allocated memory within a parsed_dns_packet_t structure.
- * @param dns_packet The packet whose internal lists should be freed.
- */
-void free_parsed_dns_packet(parsed_dns_packet_t *dns_packet);
 
 /**
  * @brief A utility function to print the contents of a parsed DNS packet in a human-readable format.

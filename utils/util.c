@@ -4,6 +4,7 @@
 
 #include "util.h"
 #include "common.h"
+#include "arena.h"
 
 /* Append a new link to an existent linked list. */
 void link_append(struct link* link, struct link* new_link) {
@@ -47,6 +48,14 @@ void* alloc_memory(size_t size) {
     }
     memset(ret, 0, size);
     return ret;
+}
+
+void* arena_alloc_memory(Arena *a, size_t size_bytes) {
+    void *ptr = arena_alloc(a, size_bytes);
+    if (ptr) {
+        memset(ptr, 0, size_bytes);
+    }
+    return ptr;
 }
 
 /* Sleep for the requested number of nanoseconds. */

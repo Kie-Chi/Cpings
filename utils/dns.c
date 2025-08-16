@@ -104,10 +104,10 @@ int dns_decode(char* outbuf, size_t outbuf_len, uint8_t* indata, size_t indata_l
 }
 
 /* Allocate a new DNS query of A type. */
-struct dns_query* new_dns_query_a(char* domain_name) {
-    struct dns_query* ret = (struct dns_query*)alloc_memory(sizeof(struct dns_query));
-
-    ret->query_name = (uint8_t*)alloc_memory(64);
+struct dns_query* new_dns_query_a(Arena* arena, char* domain_name) {
+    struct dns_query* ret = (struct dns_query*)arena_alloc_memory(arena, sizeof(struct dns_query));
+    
+    ret->query_name = (uint8_t*)arena_alloc_memory(arena, 64);
     ret->query_name_len = dns_encode(ret->query_name, 64, domain_name);
 
     ret->query_info.dclass = htons(RR_CLASS_IN);
@@ -116,17 +116,12 @@ struct dns_query* new_dns_query_a(char* domain_name) {
     return ret;
 }
 
-/* Release a DNS query. */
-void free_dns_query(struct dns_query* query) {
-    free(query->query_name);
-    free(query);
-}
 
 /* Allocate a new DNS answer of A type. */
-struct dns_answer* new_dns_answer_a(char* domain_name, uint32_t ip_addr, uint32_t ttl) {
-    struct dns_answer* ret = (struct dns_answer*)alloc_memory(sizeof(struct dns_answer) + sizeof(uint32_t));
-    
-    ret->res_name = (uint8_t*)alloc_memory(128);
+struct dns_answer* new_dns_answer_a(Arena* arena, char* domain_name, uint32_t ip_addr, uint32_t ttl) {
+    struct dns_answer* ret = (struct dns_answer*)arena_alloc_memory(arena, sizeof(struct dns_answer) + sizeof(uint32_t));
+
+    ret->res_name = (uint8_t*)arena_alloc_memory(arena, 128);
     ret->res_name_len = dns_encode(ret->res_name, 128, domain_name);
 
     ret->res_info.type = htons(RR_TYPE_A);
@@ -139,10 +134,10 @@ struct dns_answer* new_dns_answer_a(char* domain_name, uint32_t ip_addr, uint32_
 }
 
 /* Allocate a new DNS answer of NS type. */
-struct dns_answer* new_dns_answer_ns(char* domain_name, char* res_name, uint32_t ttl) {
-    struct dns_answer* ret = (struct dns_answer*)alloc_memory(sizeof(struct dns_answer) + 128);
+struct dns_answer* new_dns_answer_ns(Arena* arena, char* domain_name, char* res_name, uint32_t ttl) {
+    struct dns_answer* ret = (struct dns_answer*)arena_alloc_memory(arena, sizeof(struct dns_answer) + 128);
     
-    ret->res_name = (uint8_t*)alloc_memory(128);
+    ret->res_name = (uint8_t*)arena_alloc_memory(arena, 128);
     ret->res_name_len = dns_encode(ret->res_name, 128, domain_name);
 
     ret->res_info.type = htons(RR_TYPE_NS);
@@ -154,10 +149,10 @@ struct dns_answer* new_dns_answer_ns(char* domain_name, char* res_name, uint32_t
 }
 
 /* Allocate a new DNS answer of CNAME type. */
-struct dns_answer* new_dns_answer_cname(char* domain_name, char* res_name, uint32_t ttl) {
-    struct dns_answer* ret = (struct dns_answer*)alloc_memory(sizeof(struct dns_answer) + 128);
-    
-    ret->res_name = (uint8_t*)alloc_memory(128);
+struct dns_answer* new_dns_answer_cname(Arena* arena, char* domain_name, char* res_name, uint32_t ttl) {
+    struct dns_answer* ret = (struct dns_answer*)arena_alloc_memory(arena, sizeof(struct dns_answer) + 128);
+
+    ret->res_name = (uint8_t*)arena_alloc_memory(arena, 128);
     ret->res_name_len = dns_encode(ret->res_name, 128, domain_name);
 
     ret->res_info.type = htons(RR_TYPE_CNAME);
@@ -168,11 +163,6 @@ struct dns_answer* new_dns_answer_cname(char* domain_name, char* res_name, uint3
     return ret;
 }
 
-/* Release a DNS answer. */
-void free_dns_answer(struct dns_answer* answer) {
-    free(answer->res_name);
-    free(answer);
-}
 
 /* Get a new TX ID. */
 uint16_t get_tx_id() {
@@ -355,9 +345,12 @@ size_t make_dns_packet(uint8_t* buff, size_t buff_len, int is_resp, uint16_t tx_
 
 
 /* Send a normal DNS request. */
-void send_dns_req(int sockfd, char* dst_ip, uint16_t dst_port, struct dns_query* queries[],
+void send_dns_req(Arena* arena, int sockfd, char* dst_ip, uint16_t dst_port, struct dns_query* queries[],
         size_t query_count) {
-    uint8_t* packet = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    ARENA_ASSERT(arena != NULL);
+    Arena_Mark mark = arena_snapshot(arena);
+
+    uint8_t* packet = (uint8_t*)arena_alloc_memory(arena, DNS_PKT_MAX_LEN);
     size_t packet_len = make_dns_packet(packet, DNS_PKT_MAX_LEN, FALSE, get_tx_id(), queries, query_count, NULL, 0, NULL, 0, NULL, 0, FALSE);
     
     struct sockaddr_in dest_addr = {
@@ -375,43 +368,46 @@ void send_dns_req(int sockfd, char* dst_ip, uint16_t dst_port, struct dns_query*
         abort();
     }
 
-    free(packet);
+    arena_rewind(arena, mark);
 }
 
 /* Send a spoofed DNS response. */
-static void send_dns_resp_spoof(int sockfd, char* src_ip, char* dst_ip, uint16_t src_port,
+static void send_dns_resp_spoof(Arena* arena, int sockfd, char* src_ip, char* dst_ip, uint16_t src_port,
         uint16_t dst_port, uint16_t tx_id, struct dns_query* query[], size_t query_count,
         struct dns_answer* answers[], size_t answer_count) {
-    uint8_t* packet = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    ARENA_ASSERT(arena != NULL);
+    Arena_Mark mark = arena_snapshot(arena);
+    
+    uint8_t* packet = (uint8_t*)arena_alloc_memory(arena, DNS_PKT_MAX_LEN);
     size_t packet_len = make_dns_packet(packet, DNS_PKT_MAX_LEN, TRUE, tx_id, query,
                                         query_count, answers, answer_count, NULL, 0, NULL, 0, FALSE);
 
     // Make UDP RAW packet.
-    uint8_t* packet_raw = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    uint8_t* packet_raw = (uint8_t*)arena_alloc_memory(arena, DNS_PKT_MAX_LEN);
     size_t packet_raw_len = make_udp_packet(packet_raw, DNS_PKT_MAX_LEN, inet_addr(src_ip), inet_addr(dst_ip),
                                             src_port, dst_port, packet, packet_len);
 
     // Send RAW packet.
-    send_udp_packet(sockfd, packet_raw, packet_raw_len, inet_addr(src_ip), inet_addr(dst_ip),
+    send_udp_packet(arena, sockfd, packet_raw, packet_raw_len, inet_addr(src_ip), inet_addr(dst_ip),
                     src_port, dst_port);
-
-    free(packet_raw);
-    free(packet);
+    
+    // free memory
+    arena_rewind(arena, mark);
 }
 
 /* Send a normal DNS query and get response. */
 enum DNS_RESP_STAT send_dns_query(char* server_ip, char* domain, unsigned int timeout) {
+    Arena arena = {0};
     enum DNS_RESP_STAT ret;
     int sockfd_udp = make_sockfd_for_dns(timeout);
 
     // Send DNS query to given server.
     struct dns_query* query[1];
-    query[0] = new_dns_query_a(domain);
-    send_dns_req(sockfd_udp, server_ip, 53, query, 1);
-    free_dns_query(query[0]);
+    query[0] = new_dns_query_a(&arena, domain);
+    send_dns_req(&arena, sockfd_udp, server_ip, 53, query, 1);
 
     // Get DNS response.
-    uint8_t* buff = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    uint8_t* buff = (uint8_t*)arena_alloc_memory(&arena, DNS_PKT_MAX_LEN);
     struct dnshdr* dnsh = (struct dnshdr*)buff;
     ssize_t len = recvfrom(sockfd_udp, buff, 512, 0, NULL, NULL);
     if (len < 0)
@@ -421,7 +417,7 @@ enum DNS_RESP_STAT send_dns_query(char* server_ip, char* domain, unsigned int ti
     else
         ret = DNS_R_NORMAL;
 
-    free(buff);
+    arena_free(&arena);
     close(sockfd_udp);
 
     return ret;

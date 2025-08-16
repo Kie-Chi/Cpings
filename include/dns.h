@@ -6,6 +6,7 @@
 #define _DNS_H_
 
 #include "common.h"
+#include "arena.h"
 
 #define RR_TYPE_A       1
 #define RR_TYPE_NS      2
@@ -108,17 +109,13 @@ size_t dns_encode(uint8_t* out, size_t out_len, char* in);
 
 int dns_decode(char* outbuf, size_t outbuf_len, uint8_t* indata, size_t indata_len);
 
-struct dns_query* new_dns_query_a(char* domain_name);
+struct dns_query* new_dns_query_a(Arena* arena, char* domain_name);
 
-struct dns_answer* new_dns_answer_a(char* domain_name, uint32_t ip_addr, uint32_t ttl);
+struct dns_answer* new_dns_answer_a(Arena* arena, char* domain_name, uint32_t ip_addr, uint32_t ttl);
 
-struct dns_answer* new_dns_answer_ns(char* domain_name, char* res_name, uint32_t ttl);
+struct dns_answer* new_dns_answer_ns(Arena* arena, char* domain_name, char* res_name, uint32_t ttl);
 
-struct dns_answer* new_dns_answer_cname(char* domain_name, char* res_name, uint32_t ttl);
-
-void free_dns_query(struct dns_query* query);
-
-void free_dns_answer(struct dns_answer* answer);
+struct dns_answer* new_dns_answer_cname(Arena* arena, char* domain_name, char* res_name, uint32_t ttl);
 
 uint16_t get_tx_id();
 
@@ -128,13 +125,13 @@ size_t make_dns_packet(uint8_t *buff, size_t buff_len, int is_resp, uint16_t tx_
                        struct dns_query *queries[], uint16_t query_count,
                        struct dns_answer *answers[], uint16_t answer_count,
                        struct dns_answer *authories[], uint16_t authori_count,
-                       struct dns_answer *additionals[], uint16_t additional_count, // <--- 新增参数
+                       struct dns_answer *additionals[], uint16_t additional_count,
                        int edns0);
 
-void send_dns_req(int sockfd, char* dst_ip, uint16_t dst_port, struct dns_query* queries[],
+void send_dns_req(Arena* arena, int sockfd, char* dst_ip, uint16_t dst_port, struct dns_query* queries[],
         size_t query_count);
 
-static void send_dns_resp_spoof(int sockfd, char* src_ip, char* dst_ip, uint16_t src_port,
+static void send_dns_resp_spoof(Arena* arena, int sockfd, char* src_ip, char* dst_ip, uint16_t src_port,
         uint16_t dst_port, uint16_t tx_id, struct dns_query* query[], size_t query_count,
         struct dns_answer* answers[], size_t answer_count);
 
@@ -142,4 +139,4 @@ enum DNS_RESP_STAT send_dns_query(char* server_ip, char* domain, unsigned int ti
 
 void set_dns_flags(uint8_t *buf, size_t buf_len, int qr, int opcode, int aa, int tc, int rd, int ra, int rcode);
 
-#endif // !_DNS_H_
+#endif // !_DNS_H

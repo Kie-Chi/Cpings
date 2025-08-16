@@ -4,7 +4,7 @@
 int main() {
     int sockfd;
     struct sockaddr_in servaddr, cliaddr;
-    uint8_t buffer[2048]; // A buffer to receive packets
+    uint8_t buffer[10000]; // A buffer to receive packets
     uint16_t bind_port = 12345;
 
     // Creating socket file descriptor
@@ -45,14 +45,14 @@ int main() {
     printf("\n[+] Packet received from %s:%d (%zd bytes)\n\n", client_ip, ntohs(cliaddr.sin_port), n);
     
     parsed_dns_packet_t dns_packet;
-    if (unpack_dns_packet(buffer, n, &dns_packet)) {
+    Arena arena = {0};
+    if (unpack_dns_packet(&arena, buffer, n, &dns_packet)) {
         printf("-------------------- Parsed DNS Packet --------------------\n");
         print_parsed_dns_packet(&dns_packet);
-        free_parsed_dns_packet(&dns_packet); // Don't forget to free the allocated memory!
     } else {
         fprintf(stderr, "[-] Failed to parse DNS packet.\n");
     }
-
+    arena_free(&arena);
     close(sockfd);
     return 0;
 }

@@ -97,22 +97,18 @@ bool default_make(Arena* arena, packet_queue_t* queue, void* args) {
     struct dns_query* query[1];
     struct dns_answer* answer[1];
     
-    query[0] = new_dns_query_a(d_args->domain_name);
-    answer[0] = new_dns_answer_a(d_args->domain_name, inet_addr("8.8.8.8"), 3600);
+    query[0] = new_dns_query_a(arena, d_args->domain_name);
+    answer[0] = new_dns_answer_a(arena, d_args->domain_name, inet_addr("8.8.8.8"), 3600);
 
-    uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    uint8_t* dns_payload = (uint8_t*)arena_alloc_memory(arena, DNS_PKT_MAX_LEN);
     size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, NULL, 0, NULL, 0, FALSE);
 
-    uint8_t* packet_template = (uint8_t*)arena_alloc(arena, DNS_PKT_MAX_LEN);
+    uint8_t* packet_template = (uint8_t*)arena_alloc_memory(arena, DNS_PKT_MAX_LEN);
     size_t packet_raw_len = make_udp_packet(packet_template, DNS_PKT_MAX_LEN,
                                             inet_addr(d_args->src_ip), inet_addr(d_args->dst_ip),
                                             d_args->src_port, // Source port for DNS response
                                             d_args->dst_port, // Destination port
                                             dns_payload, dns_payload_len);
-
-    free(dns_payload);
-    free_dns_query(query[0]);
-    free_dns_answer(answer[0]);
 
     // 3. Loop 65536 times, create a packet for each TXID, and add to the queue.
     for (uint32_t i = 0; i <= UINT16_MAX; i++) {
@@ -544,10 +540,10 @@ bool pps_make(Arena* arena, packet_queue_t* queue, void* args) {
     struct dns_query* query[1];
     struct dns_answer* answer[1];
     
-    query[0] = new_dns_query_a(d_args->domain_name);
-    answer[0] = new_dns_answer_a(d_args->domain_name, inet_addr("8.8.8.8"), 3600);
+    query[0] = new_dns_query_a(arena, d_args->domain_name);
+    answer[0] = new_dns_answer_a(arena, d_args->domain_name, inet_addr("8.8.8.8"), 3600);
 
-    uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    uint8_t* dns_payload = (uint8_t*)arena_alloc_memory(arena, DNS_PKT_MAX_LEN);
     size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, query, 1, answer, 1, NULL, 0, NULL, 0, FALSE);
 
     uint8_t* packet_template = (uint8_t*)arena_alloc(arena, DNS_PKT_MAX_LEN);
@@ -556,9 +552,6 @@ bool pps_make(Arena* arena, packet_queue_t* queue, void* args) {
                                             d_args->src_port,
                                             d_args->dst_port,
                                             dns_payload, dns_payload_len);
-    free(dns_payload);
-    free_dns_query(query[0]);
-    free_dns_answer(answer[0]);
 
     // 2. Loop `packets_to_generate` times, using the shared counter for TXID.
     for (size_t i = 0; i < ((pps_make_args_t*)d_args)->count; i++) {

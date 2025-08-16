@@ -50,7 +50,6 @@ target_include_directories(cpings_core
 # src
 add_executable(udpscan src/udpscan.c)
 add_executable(saddns src/saddns_attack.c)
-add_executable(saddns_l src/saddns_attack_lower.c)
 add_executable(kaminsky src/kaminsky_attack.c)
 add_executable(listener src/listener.c)
 
@@ -68,7 +67,6 @@ add_executable(test_stop_timer test/test_stop_timer.c)
 # --- 链接所有主要的可执行文件到核心库和线程库 ---
 set(MAIN_TARGETS
     saddns
-    saddns_l
     udpscan
     kaminsky
     listener
@@ -102,7 +100,6 @@ endforeach()
 
 # enable_testing()
 
-# # 假设你想将 test_ipfragment 作为 CTest 的一个测试用例
 # add_test(
 #     NAME IP_Fragmentation_Test
 #     COMMAND test_ipfragment # CTest 会执行这个可执行文件

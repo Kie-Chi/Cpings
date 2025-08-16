@@ -6,6 +6,7 @@
 #define _GENERIC_H_
 
 #include "common.h"
+#include "arena.h"
 
 struct link {
     struct link* next;
@@ -18,6 +19,7 @@ size_t link_length(struct link* link);
 void link_free(struct link* link);
 
 void* alloc_memory(size_t size);
+void *arena_alloc_memory(Arena *a, size_t size_bytes);
 
 void nsleep(long nsec);
 

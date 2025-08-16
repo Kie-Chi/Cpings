@@ -277,21 +277,15 @@ size_t frag_udp_packet(uint8_t* packet, size_t packet_len, uint8_t** packets_ptr
     }
 }
 
-/* Free used space */
-void free_space(uint8_t** space_ptr, size_t len) {
-    for (size_t i = 0; i < len; i++) {
-        uint8_t* space = *(space_ptr + i);
-        free(space);
-    }
-    free(space_ptr);
-}
+
 
 /* Send UDP packet to given target. */
-void send_udp_packet(int sockfd, uint8_t* packet, size_t packet_len, uint32_t src_addr,
+void send_udp_packet(Arena* arena, int sockfd, uint8_t* packet, size_t packet_len, uint32_t src_addr,
         uint32_t dst_addr, uint16_t src_port, uint16_t dst_port) {
     struct iphdr* iph = (struct iphdr*)packet;
     struct udphdr* udph = (struct udphdr*)(packet + sizeof(struct iphdr));
-
+    
+    ARENA_ASSERT(arena != NULL);
     // Set values in packet.
     iph->saddr = src_addr;
     iph->daddr = dst_addr;
@@ -324,9 +318,10 @@ void send_udp_packet(int sockfd, uint8_t* packet, size_t packet_len, uint32_t sr
             abort();
         }
     } else {
-        uint8_t** packets_ptrptr = (uint8_t**)alloc_memory(sizeof(uint8_t*) * MAX_FRAGMENTS);
+        Arena_Mark mark = arena_snapshot(arena);
+        uint8_t** packets_ptrptr = (uint8_t**)arena_alloc_memory(arena, sizeof(uint8_t*) * MAX_FRAGMENTS);
         for (size_t i = 0; i < MAX_FRAGMENTS; i++) {
-            *(packets_ptrptr + i) = (uint8_t*)alloc_memory(MTU * sizeof(uint8_t));    
+            *(packets_ptrptr + i) = (uint8_t*)arena_alloc_memory(arena, MTU * sizeof(uint8_t));
         }
         size_t num = frag_udp_packet(packet, packet_len, packets_ptrptr);
         if (0 < num && num <= MAX_FRAGMENTS) {
@@ -338,12 +333,12 @@ void send_udp_packet(int sockfd, uint8_t* packet, size_t packet_len, uint32_t sr
 #ifdef _DEBUG
                     perror("send_udp_packet_raw");
 #endif
-                    free_space(packets_ptrptr, MAX_FRAGMENTS);
+                    arena_rewind(arena, mark);
                     abort();
                 }
             }
         }
-        free_space(packets_ptrptr, MAX_FRAGMENTS);
+        arena_rewind(arena, mark);
     }
 }
 
@@ -352,6 +347,7 @@ void send_udp_packet(int sockfd, uint8_t* packet, size_t packet_len, uint32_t sr
 */
 
 void send_sltd_udp_packet(
+    Arena* arena,
     int sockfd, 
     uint8_t* packet, 
     size_t packet_len, 
@@ -363,6 +359,7 @@ void send_sltd_udp_packet(
 ) {
     struct iphdr* iph = (struct iphdr*)packet;
     struct udphdr* udph = (struct udphdr*)(packet + sizeof(struct iphdr));
+    ARENA_ASSERT(arena != NULL);
 
     // Set values in packet.
     iph->saddr = src_addr;
@@ -392,9 +389,10 @@ void send_sltd_udp_packet(
 #endif
         abort();
     } else {
-        uint8_t** packets_ptrptr = (uint8_t**)alloc_memory(sizeof(uint8_t*) * MAX_FRAGMENTS);
+        Arena_Mark mark = arena_snapshot(arena);
+        uint8_t** packets_ptrptr = (uint8_t**)arena_alloc_memory(arena, sizeof(uint8_t*) * MAX_FRAGMENTS);
         for (size_t i = 0; i < MAX_FRAGMENTS; i++) {
-            *(packets_ptrptr + i) = (uint8_t*)alloc_memory(MTU * sizeof(uint8_t));    
+            *(packets_ptrptr + i) = (uint8_t*)arena_alloc_memory(arena, MTU * sizeof(uint8_t));
         }
         size_t num = frag_udp_packet(packet, packet_len, packets_ptrptr);
         if (0 < num && num <= MAX_FRAGMENTS) {
@@ -418,11 +416,11 @@ void send_sltd_udp_packet(
 #ifdef _DEBUG
                     perror("send_udp_packet_raw");
 #endif
-                    free_space(packets_ptrptr, MAX_FRAGMENTS);
+                    arena_rewind(arena, mark);
                     abort();
                 }
             }
         }
-        free_space(packets_ptrptr, MAX_FRAGMENTS);
+        arena_rewind(arena, mark);
     }
 }

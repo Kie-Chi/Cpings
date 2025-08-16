@@ -22,6 +22,7 @@ struct findres {
 };
 
 size_t _build_std_resp(
+    Arena* arena,
     uint8_t *packet,
     size_t packet_len,
     char *qname,
@@ -31,6 +32,7 @@ size_t _build_std_resp(
     size_t length);
 
 size_t build_fake_resp(
+    Arena* arena,
     uint8_t *packet,
     size_t packet_len,
     char *qname,

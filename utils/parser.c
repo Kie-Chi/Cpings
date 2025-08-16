@@ -100,13 +100,16 @@ static int dns_decompress_name(const uint8_t* packet_start, const uint8_t* curre
 }
 
 // Helper to parse a section of Resource Records
-static const uint8_t* parse_rr_section(const uint8_t* packet_start, const uint8_t* current_pos, uint16_t count, dns_parsed_rr_t** list_head) {
+static const uint8_t* parse_rr_section(Arena* arena, const uint8_t* packet_start, const uint8_t* current_pos, uint16_t count, dns_parsed_rr_t** list_head) {
+    ARENA_ASSERT(arena != NULL);
     dns_parsed_rr_t* tail = NULL;
     for (int i = 0; i < count; i++) {
-        dns_parsed_rr_t* rr = (dns_parsed_rr_t*)alloc_memory(sizeof(dns_parsed_rr_t));
+        dns_parsed_rr_t* rr = (dns_parsed_rr_t*)arena_alloc_memory(arena, sizeof(dns_parsed_rr_t));
         
         int consumed = dns_decompress_name(packet_start, current_pos, rr->name, sizeof(rr->name));
-        if (consumed < 0) { free(rr); return NULL; }
+        if (consumed < 0) {
+            return NULL; 
+        }
         current_pos += consumed;
 
         // Directly map the struct fields, being careful about alignment
@@ -135,7 +138,9 @@ static const uint8_t* parse_rr_section(const uint8_t* packet_start, const uint8_
 }
 
 
-bool unpack_dns_packet(const uint8_t* udp_payload, size_t udp_payload_len, parsed_dns_packet_t* out_dns) {
+bool unpack_dns_packet(Arena* arena, const uint8_t* udp_payload, size_t udp_payload_len, parsed_dns_packet_t* out_dns) {
+    ARENA_ASSERT(arena != NULL);
+
     if (udp_payload_len < sizeof(struct dnshdr)) {
         return false;
     }
@@ -152,10 +157,12 @@ bool unpack_dns_packet(const uint8_t* udp_payload, size_t udp_payload_len, parse
     uint16_t qdcount = ntohs(out_dns->dns_header->qdcount);
     dns_parsed_question_t* q_tail = NULL;
     for (int i = 0; i < qdcount; i++) {
-        dns_parsed_question_t* q = (dns_parsed_question_t*)alloc_memory(sizeof(dns_parsed_question_t));
+        dns_parsed_question_t* q = (dns_parsed_question_t*)arena_alloc_memory(arena, sizeof(dns_parsed_question_t));
         
         int consumed = dns_decompress_name(udp_payload, current_pos, q->name, sizeof(q->name));
-        if (consumed < 0) { free(q); free_parsed_dns_packet(out_dns); return false; }
+        if (consumed < 0) {
+            return false; 
+        }
         current_pos += consumed;
 
         q->qtype = ntohs(*(uint16_t*)current_pos);
@@ -172,98 +179,84 @@ bool unpack_dns_packet(const uint8_t* udp_payload, size_t udp_payload_len, parse
     }
 
     // Parse RR sections
-    current_pos = parse_rr_section(udp_payload, current_pos, ntohs(out_dns->dns_header->ancount), &out_dns->answers);
-    if (!current_pos) { free_parsed_dns_packet(out_dns); return false; }
-    
-    current_pos = parse_rr_section(udp_payload, current_pos, ntohs(out_dns->dns_header->nscount), &out_dns->authorities);
-    if (!current_pos) { free_parsed_dns_packet(out_dns); return false; }
+    current_pos = parse_rr_section(arena, udp_payload, current_pos, ntohs(out_dns->dns_header->ancount), &out_dns->answers);
+    if (!current_pos) {
+        return false;
+    }
 
-    current_pos = parse_rr_section(udp_payload, current_pos, ntohs(out_dns->dns_header->arcount), &out_dns->additionals);
-    if (!current_pos) { free_parsed_dns_packet(out_dns); return false; }
+    current_pos = parse_rr_section(arena, udp_payload, current_pos, ntohs(out_dns->dns_header->nscount), &out_dns->authorities);
+    if (!current_pos) {
+        return false;
+    }
+
+    current_pos = parse_rr_section(arena, udp_payload, current_pos, ntohs(out_dns->dns_header->arcount), &out_dns->additionals);
+    if (!current_pos) {
+        return false;
+    }
 
     return true;
 }
 
-void free_parsed_dns_packet(parsed_dns_packet_t* dns_packet) {
-    dns_parsed_question_t* q = dns_packet->questions;
-    while(q) {
-        dns_parsed_question_t* next_q = q->next;
-        free(q);
-        q = next_q;
+// Helper lambda/function for printing different RR types
+    // This avoids code duplication between sections
+    void print_rr(struct dnshdr* h, const char* section_name, dns_parsed_rr_t* rr_list) {
+        if (!rr_list) return;
+        printf(";; %s SECTION:\n", section_name);
+        for (dns_parsed_rr_t* rr = rr_list; rr; rr = rr->next) {
+            switch (rr->rtype) {
+                case RR_TYPE_A: {
+                    char ip_str[INET_ADDRSTRLEN];
+                    if (rr->rdlength == 4) {
+                         inet_ntop(AF_INET, rr->rdata, ip_str, INET_ADDRSTRLEN);
+                         printf("%-30s %-8u IN\tA\t%s\n", rr->name, rr->ttl, ip_str);
+                    }
+                    break;
+                }
+                case RR_TYPE_NS:
+                case RR_TYPE_CNAME: {
+                    char rdata_name[256] = {0};
+                    // The first argument to decompress must be the start of the whole DNS packet
+                    dns_decompress_name((const uint8_t*)h, rr->rdata, rdata_name, sizeof(rdata_name));
+                    const char* type_str = (rr->rtype == RR_TYPE_NS) ? "NS" : "CNAME";
+                    printf("%-30s %-8u IN\t%s\t%s\n", rr->name, rr->ttl, type_str, rdata_name);
+                    break;
+                }
+                default: {
+                    printf("%-30s %-8u IN\tTYPE %-5u\t(data length %u)\n", rr->name, rr->ttl, rr->rtype, rr->rdlength);
+                    break;
+                }
+            }
+        }
+        printf("\n");
     }
-
-    dns_parsed_rr_t* rr = dns_packet->answers;
-    while(rr) {
-        dns_parsed_rr_t* next_rr = rr->next;
-        free(rr);
-        rr = next_rr;
-    }
-
-    rr = dns_packet->authorities;
-    while(rr) {
-        dns_parsed_rr_t* next_rr = rr->next;
-        free(rr);
-        rr = next_rr;
-    }
-
-    rr = dns_packet->additionals;
-    while(rr) {
-        dns_parsed_rr_t* next_rr = rr->next;
-        free(rr);
-        rr = next_rr;
-    }
-}
-
 
 void print_parsed_dns_packet(const parsed_dns_packet_t* dns_packet) {
     if (!dns_packet || !dns_packet->dns_header) return;
     
     struct dnshdr* h = dns_packet->dns_header;
-    printf(";; ->>HEADER<<- opcode: QUERY, status: %d, id: %u\n", (ntohs(h->flags) >> 11) & 0xF, ntohs(h->id));
-    printf(";; flags: %s; QUERY: %u, ANSWER: %u, AUTHORITY: %u, ADDITIONAL: %u\n\n",
-        (ntohs(h->flags) & 0x8000) ? "qr" : "",
+    int rcode = ntohs(h->flags) & DNS_MASK_RCODE;
+    // Note: This opcode parsing is slightly off. Opcode is in the middle of flags.
+    int opcode = (ntohs(h->flags) & DNS_MASK_OPCODE) >> DNS_SHIFT_OPCODE;
+
+    printf(";; ->>HEADER<<- opcode: %d, status: %d, id: %u\n", opcode, rcode, ntohs(h->id));
+    printf(";; flags: %s%s%s%s%s; QUERY: %u, ANSWER: %u, AUTHORITY: %u, ADDITIONAL: %u\n\n",
+        (ntohs(h->flags) & DNS_FLAG_QR) ? "qr " : "",
+        (ntohs(h->flags) & DNS_FLAG_AA) ? "aa " : "",
+        (ntohs(h->flags) & DNS_FLAG_TC) ? "tc " : "",
+        (ntohs(h->flags) & DNS_FLAG_RD) ? "rd " : "",
+        (ntohs(h->flags) & DNS_FLAG_RA) ? "ra" : "",
         ntohs(h->qdcount), ntohs(h->ancount), ntohs(h->nscount), ntohs(h->arcount));
     
     if (dns_packet->questions) {
         printf(";; QUESTION SECTION:\n");
         for (dns_parsed_question_t* q = dns_packet->questions; q; q = q->next) {
+            // Assuming QTYPE A for simplicity, a full implementation would check q->qtype
             printf(";%-30s IN\tA\n", q->name);
         }
         printf("\n");
     }
 
-    if (dns_packet->answers) {
-        printf(";; ANSWER SECTION:\n");
-        for (dns_parsed_rr_t* rr = dns_packet->answers; rr; rr = rr->next) {
-            char ip_str[INET_ADDRSTRLEN];
-            inet_ntop(AF_INET, rr->rdata, ip_str, INET_ADDRSTRLEN);
-            printf("%-30s %-8u IN\tA\t%s\n", rr->name, rr->ttl, ip_str);
-        }
-        printf("\n");
-    }
-    
-    if (dns_packet->authorities) {
-        printf(";; AUTHORITY SECTION:\n");
-        for (dns_parsed_rr_t* rr = dns_packet->authorities; rr; rr = rr->next) {
-             char ns_name[256];
-             dns_decompress_name((const uint8_t*)h, rr->rdata, ns_name, sizeof(ns_name));
-             printf("%-30s %-8u IN\tNS\t%s\n", rr->name, rr->ttl, ns_name);
-        }
-        printf("\n");
-    }
-
-    if (dns_packet->additionals) {
-        printf(";; ADDITIONAL SECTION:\n");
-        for (dns_parsed_rr_t* rr = dns_packet->additionals; rr; rr = rr->next) {
-            if (rr->rtype == RR_TYPE_A) {
-                char ip_str[INET_ADDRSTRLEN];
-                inet_ntop(AF_INET, rr->rdata, ip_str, INET_ADDRSTRLEN);
-                printf("%-30s %-8u IN\tA\t%s\n", rr->name, rr->ttl, ip_str);
-            } else {
-                // Could be an OPT record, etc. Just print basic info.
-                printf("%-30s %-8u IN\tTYPE %u\t(data length %u)\n", rr->name, rr->ttl, rr->rtype, rr->rdlength);
-            }
-        }
-        printf("\n");
-    }
+    print_rr(h, "ANSWER", dns_packet->answers);
+    print_rr(h, "AUTHORITY", dns_packet->authorities);
+    print_rr(h, "ADDITIONAL", dns_packet->additionals);
 }

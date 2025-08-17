@@ -24,6 +24,8 @@ size_t make_udp_packet(uint8_t* buff_in, size_t len_in, uint32_t src_addr, uint3
 void send_udp_packet(Arena* arena, int sockfd, uint8_t* packet, size_t packet_len, uint32_t src_addr,
         uint32_t dst_addr, uint16_t src_port, uint16_t dst_port);
 
+size_t frag_udp_packet(uint8_t* packet, size_t packet_len, uint8_t** packets_ptrptr);
+    
 struct sendres {
     int* positions; // 动态数组，
     size_t count;

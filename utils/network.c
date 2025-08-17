@@ -206,7 +206,7 @@ size_t make_udp_packet(uint8_t* buff_in, size_t len_in, uint32_t src_addr, uint3
     // iph->id = htons(rand() % 65535 + 1);
     iph->id = htons(1);
     iph->frag_off = 0;
-    iph->ttl = MAXTTL;
+    iph->ttl = 64;
     iph->protocol = IPPROTO_UDP;
     iph->check = 0;
     iph->saddr = src_addr;
@@ -264,6 +264,9 @@ size_t frag_udp_packet(uint8_t* packet, size_t packet_len, uint8_t** packets_ptr
             iph->frag_off = htons((offset / 8) | mf_flag);
             // iph->check = ip_checksum((uint16_t*)iph, ntohs(iph->tot_len));
             iph->check = ip_checksum((uint16_t*)iph, sizeof(struct iphdr));
+#ifdef _DEBUG
+            printf("frag_udp_packet: checksum %lx\n", iph->check);
+#endif
             len -= (payload > len) ? len : payload;
             offset += payload;
         }
@@ -381,6 +384,17 @@ void send_sltd_udp_packet(
     };
     memset(dest_addr.sin_zero, '\x00', sizeof(dest_addr.sin_zero));
 
+
+    const char* pcap_filename = getenv("PCAP_DUMP_FILE");
+    pcap_t* pcap_handle = NULL;
+    pcap_dumper_t* pcap_dumper = NULL;
+    if (pcap_filename) {
+        pcap_dumper = pcap_dump_open_for_writing(pcap_filename, &pcap_handle);
+        if (pcap_dumper) {
+            printf("[DEBUG] Recording sent fragments to %s (using libpcap)\n", pcap_filename);
+        }
+    }
+
     // Send packet.
     size_t len;
     if (packet_len <= MTU) {
@@ -411,6 +425,9 @@ void send_sltd_udp_packet(
                 if (!shbe_sent[i]) continue;
                 uint8_t* packets_ptr = *(packets_ptrptr + i);
                 size_t plen = ntohs(((struct iphdr*)packets_ptr)->tot_len);
+                if (pcap_dumper) {
+                    pcap_dump_ip_packet(pcap_dumper, packets_ptr, plen);
+                }
                 len = sendto(sockfd, packets_ptr, plen, 0, (struct sockaddr*)&dest_addr, sizeof(dest_addr));
                 if (len < 0) {
 #ifdef _DEBUG

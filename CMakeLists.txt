@@ -24,6 +24,7 @@ add_compile_definitions(_USE_BINARYSEARCH)
 find_package(Threads REQUIRED)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(LIBUV REQUIRED libuv)
+pkg_check_modules(LIBPCAP REQUIRED libpcap)
 
 # ==========================================================
 #                  核心库 (Core Library)
@@ -38,6 +39,7 @@ add_library(cpings_core STATIC
     utils/fake.c
     utils/sender.c
     utils/strategy.c
+    utils/pcap_writer.c
 )
 
 target_include_directories(cpings_core
@@ -52,6 +54,7 @@ add_executable(udpscan src/udpscan.c)
 add_executable(saddns src/saddns_attack.c)
 add_executable(kaminsky src/kaminsky_attack.c)
 add_executable(ipfragment src/ipfragment_attack.c)
+add_executable(ipfragment_low src/ipfragment_attack_low.c)
 add_executable(listener src/listener.c)
 
 # test
@@ -71,6 +74,7 @@ set(MAIN_TARGETS
     udpscan
     kaminsky
     ipfragment
+    ipfragment_low
     listener
     test_ipfragment
     test_build_fake_resp
@@ -88,10 +92,12 @@ foreach(TARGET ${MAIN_TARGETS})
         cpings_core        # 链接我们的核心库
         ${CMAKE_THREAD_LIBS_INIT} # 链接线程库
         ${LIBUV_LIBRARIES}         # 链接 libuv 库
+        ${LIBPCAP_LIBRARIES}
     )
     target_include_directories(${TARGET}
         PRIVATE
         ${LIBUV_INCLUDE_DIRS}      # 添加 libuv 的头文件路径
+        ${LIBPCAP_INCLUDE_DIRS}
     )
 endforeach()
 

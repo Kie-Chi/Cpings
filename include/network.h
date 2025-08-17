@@ -7,6 +7,7 @@
 
 #include "common.h"
 #include "arena.h"
+#include "pcap_writer.h"
 
 in_addr_t local_addr(char* target_ip);
 
